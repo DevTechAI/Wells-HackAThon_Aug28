@@ -1,0 +1,1 @@
+INSERT INTO customers VALUES ('c1','Ananya','Rao');

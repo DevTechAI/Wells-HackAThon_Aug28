@@ -1,0 +1,1 @@
+# AI SQL Bot\nRun with:\n```bash\nsqlite3 banking.db < db/schema.sql\nsqlite3 banking.db < db/sample_data.sql\nuv run streamlit run app.py\n```
