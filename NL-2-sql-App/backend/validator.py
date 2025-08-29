@@ -30,11 +30,22 @@ class ValidatorAgent:
             if word in tokens:
                 return False, f"Forbidden operation detected: {word}"
 
-        # 3. Validate tables
+        # 3. Basic table validation (optional - can be enhanced later)
+        # For now, just ensure the SQL looks reasonable
         sql_str = sql.upper()
+        
+        # Check if any known table is mentioned (optional validation)
+        table_mentioned = False
         for table in self.schema_tables:
             if table.upper() in sql_str:
-                continue
-        # (Optional deeper parsing for FROM/JOIN clauses)
-
+                table_mentioned = True
+                break
+        
+        # If no known table is mentioned, it might be a general query like "SELECT 1"
+        # We'll allow it for now
+        
         return True, "SQL is safe"
+
+    def is_safe(self, sql: str, schema_tables: dict) -> tuple[bool, str]:
+        """Wrapper method to match pipeline expectations"""
+        return self.is_safe_sql(sql)

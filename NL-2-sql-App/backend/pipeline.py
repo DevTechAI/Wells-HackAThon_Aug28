@@ -58,7 +58,7 @@ class NL2SQLPipeline:
 
         # 3) Generate SQL
         t2 = time.time()
-        sql = self.generator.generate_sql(nl_query, gen_ctx)
+        sql = self.generator.generate(nl_query, {}, gen_ctx, self.schema_tables)
         diag.generated_sql = sql
         diag.timings_ms["generation"] = int((time.time() - t2) * 1000)
 
@@ -97,6 +97,13 @@ class NL2SQLPipeline:
                 out["diagnostics"] = diag.__dict__
                 out["success"] = True
                 out["generated_sql"] = diag.generated_sql
+                
+                # Add planner suggestions if available
+                if hasattr(self, 'planner') and hasattr(self.planner, 'analyze_query'):
+                    plan = self.planner.analyze_query(nl_query)
+                    if plan.get("follow_up_suggestions"):
+                        out["suggestions"] = plan["follow_up_suggestions"]
+                
                 return out
 
             # If execution failed, try repair

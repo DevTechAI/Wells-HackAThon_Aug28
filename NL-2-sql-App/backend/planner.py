@@ -80,6 +80,9 @@ class PlannerAgent:
         tables = self._detect_tables(nl_query)
         capabilities = self._detect_capabilities(nl_query)
         clarifications = self._detect_clarifications(nl_query)
+        
+        # Generate intelligent follow-up suggestions
+        follow_up_suggestions = self._generate_follow_up_suggestions(nl_query, tables, capabilities)
 
         steps = [
             {"action":"fetch_schema","tables": tables},
@@ -95,6 +98,67 @@ class PlannerAgent:
             "steps": steps,
             "capabilities": capabilities,
             "clarifications": clarifications,
+            "follow_up_suggestions": follow_up_suggestions,
             "conversation_state": self.conversation_state
         }
         return plan
+
+    def _generate_follow_up_suggestions(self, query: str, tables: List[str], capabilities: List[str]) -> List[str]:
+        """Generate intelligent follow-up questions based on the current query"""
+        query_lower = query.lower()
+        suggestions = []
+        
+        # Branch-related suggestions
+        if "branch" in query_lower or "branches" in query_lower:
+            if "transaction" in query_lower:
+                suggestions.extend([
+                    "Show me the bottom 5 performing branches",
+                    "What's the average transaction amount by branch?",
+                    "Show me branch performance by month",
+                    "Compare branch performance by employee count"
+                ])
+            else:
+                suggestions.extend([
+                    "Show me the top 10 branches by transaction volume",
+                    "Which branches have the most employees?",
+                    "Show me branch performance by revenue",
+                    "What's the average account balance by branch?"
+                ])
+        
+        # Account-related suggestions
+        if "account" in query_lower or "balance" in query_lower:
+            suggestions.extend([
+                "Show me the top 10 accounts by balance",
+                "What's the average account balance?",
+                "Show me account distribution by type",
+                "Which customers have multiple accounts?"
+            ])
+        
+        # Employee-related suggestions
+        if "employee" in query_lower or "salary" in query_lower:
+            suggestions.extend([
+                "Show me the top 10 highest paid employees",
+                "What's the average employee salary?",
+                "Show me salary distribution by position",
+                "Which branches have the highest paid employees?"
+            ])
+        
+        # Transaction-related suggestions
+        if "transaction" in query_lower:
+            suggestions.extend([
+                "Show me transaction trends by month",
+                "What's the average transaction amount?",
+                "Show me transactions by type",
+                "Which accounts have the most transactions?"
+            ])
+        
+        # General database exploration suggestions
+        if not suggestions:
+            suggestions.extend([
+                "Show me the count of rows by each table",
+                "What's the top performing branch?",
+                "Show me the highest balance account",
+                "Which employee has the highest salary?"
+            ])
+        
+        return suggestions[:4]  # Limit to 4 suggestions
