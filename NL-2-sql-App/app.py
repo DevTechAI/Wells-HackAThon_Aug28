@@ -1,1182 +1,1285 @@
+#!/usr/bin/env python3
+"""
+SQL RAG Agent - Main Application
+Natural Language to SQL with RAG (Retrieval-Augmented Generation)
+"""
 
-import os
 import streamlit as st
-from dotenv import load_dotenv
+import os
+import sys
+import time
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+
+# Add backend to path
+sys.path.append('./backend')
+
+from backend.system_initializer import run_system_initialization
+from backend.pdf_exporter import PDFExporter
 from backend.pipeline import NL2SQLPipeline, PipelineConfig
 from backend.planner import PlannerAgent
 from backend.retriever import RetrieverAgent
-from backend.sql_generator import SQLGeneratorAgent
-import typing
-import sqlite3
-from backend.db_init import initialize_database
-from frontend.health_dashboard import create_health_dashboard, create_mini_health_status
-
-try:
-    from llama_cpp import Llama
-except ImportError:
-    Llama = None
-
-
+from backend.llm_sql_generator import LLMSQLGenerator
 from backend.validator import ValidatorAgent
 from backend.executor import ExecutorAgent
 from backend.summarizer import SummarizerAgent
-import time
+from backend.db_manager import get_db_manager
+from backend.llm_config import llm_config
+from backend.integration_test_runner import get_integration_test_results
 
-load_dotenv()
-
-def custom_pipeline_run_with_status(pipeline, nl_query: str, status_area, progress_bar, clarified_values=None) -> dict:
-    """
-    Custom pipeline execution that updates the UI with real-time status
-    """
-    from backend.pipeline import PipelineDiagnostics
-    diag = PipelineDiagnostics()
-    start_all = time.time()
-    
-    # Store agent flow for detailed logging
-    agent_flow = []
-    
-    # Step 1: Plan
-    status_area.info("📋 **Step 1:** Analyzing your query and planning the approach...")
-    progress_bar.progress(20)
-    
-    t0 = time.time()
-    plan = pipeline.planner.analyze_query(nl_query)
-    diag.timings_ms["planning"] = int((time.time() - t0) * 1000)
-    diag.chosen_tables = plan.get("tables", [])
-    
-    # Log planner agent flow
-    planner_output = {
-        "agent": "PLANNER",
-        "input": {"query": nl_query},
-        "output": {
-            "tables": plan.get("tables", []),
-            "capabilities": plan.get("capabilities", []),
-            "clarifications": plan.get("clarifications", []),
-            "follow_up_suggestions": plan.get("follow_up_suggestions", [])
-        },
-        "timing_ms": diag.timings_ms["planning"]
-    }
-    agent_flow.append(planner_output)
-    
-    status_area.success(f"✅ **Planning Complete:** Identified relevant tables: {', '.join(diag.chosen_tables)}")
-    progress_bar.progress(30)
-    
-    # Check for clarifications
-    clar = plan.get("clarifications", [])
-    if clar:
-        status_area.warning("❓ **Clarification Needed:** Please provide additional details")
-        return {"needs_clarification": True, "clarifications": clar, "diagnostics": diag.__dict__, "success": False, "agent_flow": agent_flow}
-    
-    # Step 2: Retrieve context
-    status_area.info("🔍 **Processing.... please wait** - Finding relevant database information...")
-    progress_bar.progress(40)
-    
-    t1 = time.time()
-    print(f"🔍 RETRIEVER AGENT: About to call retrieve method...")
-    ctx_bundle = pipeline.retriever.retrieve(nl_query, pipeline.schema_tables)
-    print(f"🔍 RETRIEVER AGENT: Retrieve method completed successfully")
-    diag.timings_ms["retrieval"] = int((time.time() - t1) * 1000)
-    
-    # Log retriever agent flow
-    retriever_output = {
-        "agent": "RETRIEVER",
-        "input": {
-            "query": nl_query,
-            "available_tables": list(pipeline.schema_tables.keys())
-        },
-        "output": {
-            "schema_context_count": len(ctx_bundle.get('schema_context', [])),
-            "schema_context_preview": ctx_bundle.get('schema_context', [])[:3],  # First 3 items
-            "value_hints_count": len(ctx_bundle.get('value_hints', {})),
-            "exemplars_count": len(ctx_bundle.get('exemplars', [])),
-            "retrieval_method": ctx_bundle.get('retrieval_method', 'unknown')
-        },
-        "timing_ms": diag.timings_ms["retrieval"]
-    }
-    agent_flow.append(retriever_output)
-    
-    status_area.success(f"✅ **Context Retrieved:** Found {len(ctx_bundle.get('schema_context', []))} schema items")
-    progress_bar.progress(50)
-    
-    # Create comprehensive schema context with all table information
-    comprehensive_schema = []
-    
-    # Add all table schemas directly
-    table_schemas = {
-        "branches": "CREATE TABLE branches (id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT, city TEXT, state TEXT, zip_code TEXT, manager_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-        "employees": "CREATE TABLE employees (id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, phone TEXT, position TEXT, hire_date DATE, salary REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (branch_id) REFERENCES branches(id));",
-        "customers": "CREATE TABLE customers (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, phone TEXT, address TEXT, first_name TEXT NOT NULL, last_name TEXT NOT NULL, date_of_birth DATE, gender TEXT, national_id TEXT UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, branch_id TEXT, FOREIGN KEY (branch_id) REFERENCES branches(id));",
-        "accounts": "CREATE TABLE accounts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, account_number TEXT UNIQUE NOT NULL, type TEXT NOT NULL, balance REAL DEFAULT 0.00, opened_at DATE NOT NULL, interest_rate REAL, status TEXT DEFAULT 'active', branch_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (customer_id) REFERENCES customers(id), FOREIGN KEY (branch_id) REFERENCES branches(id));",
-        "transactions": "CREATE TABLE transactions (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, amount REAL NOT NULL, type TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'completed', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, employee_id TEXT, FOREIGN KEY (account_id) REFERENCES accounts(id), FOREIGN KEY (employee_id) REFERENCES employees(id));"
-    }
-    
-    # Add table descriptions
-    table_descriptions = {
-        "branches": "Branches table contains bank branch information including location, manager, and contact details. Each branch can have multiple employees and customers.",
-        "employees": "Employees table contains staff information including their position, salary, and which branch they work at. The manager_id in branches table references employees.id.",
-        "customers": "Customers table contains customer personal information and is linked to branches through branch_id.",
-        "accounts": "Accounts table contains bank account information including type, balance, and is linked to customers and branches.",
-        "transactions": "Transactions table contains all financial transactions linked to accounts and processed by employees."
-    }
-    
-    # Build comprehensive schema context
-    for table_name, schema in table_schemas.items():
-        comprehensive_schema.append(f"Table: {table_name}")
-        comprehensive_schema.append(f"Schema: {schema}")
-        comprehensive_schema.append(f"Description: {table_descriptions[table_name]}")
-        comprehensive_schema.append("")
-    
-    # Add relationship information
-    comprehensive_schema.append("Key Relationships:")
-    comprehensive_schema.append("- branches.manager_id → employees.id (branch managers)")
-    comprehensive_schema.append("- customers.branch_id → branches.id (customer's branch)")
-    comprehensive_schema.append("- accounts.customer_id → customers.id (account owner)")
-    comprehensive_schema.append("- accounts.branch_id → branches.id (account's branch)")
-    comprehensive_schema.append("- transactions.account_id → accounts.id (transaction's account)")
-    comprehensive_schema.append("- transactions.employee_id → employees.id (transaction processor)")
-    comprehensive_schema.append("")
-    
-    # Add enhanced schema and column information
-    if 'schema_info' in st.session_state and 'column_values' in st.session_state:
-        comprehensive_schema.append("")
-        comprehensive_schema.append("=== ENHANCED SCHEMA INFORMATION ===")
-        
-        for table_name, schema_data in st.session_state.schema_info.items():
-            comprehensive_schema.append(f"")
-            comprehensive_schema.append(f"TABLE: {table_name}")
-            comprehensive_schema.append(f"CREATE TABLE: {schema_data['create_sql']}")
-            
-            # Add column information
-            comprehensive_schema.append(f"COLUMNS:")
-            for col_info in schema_data['columns']:
-                col_name, col_type, nullable = col_info[1], col_info[2], col_info[3]
-                pk = " (PRIMARY KEY)" if col_info[5] == 1 else ""
-                comprehensive_schema.append(f"  - {col_name}: {col_type}{pk}")
-            
-            # Add foreign key information
-            if schema_data['foreign_keys']:
-                comprehensive_schema.append(f"FOREIGN KEYS:")
-                for fk in schema_data['foreign_keys']:
-                    comprehensive_schema.append(f"  - {fk[3]} -> {fk[2]}.{fk[4]}")
-            
-            # Add column values if available
-            if table_name in st.session_state.column_values:
-                comprehensive_schema.append(f"COLUMN VALUES:")
-                for col_name, col_data in st.session_state.column_values[table_name].items():
-                    if col_name != 'sample_data':
-                        values = col_data['unique_values'][:10]  # Limit to first 10 values
-                        comprehensive_schema.append(f"  - {col_name}: {', '.join(map(str, values))}")
-                        if len(col_data['unique_values']) > 10:
-                            comprehensive_schema.append(f"    (and {len(col_data['unique_values']) - 10} more values)")
-        
-        comprehensive_schema.append("")
-        comprehensive_schema.append("=== SAMPLE DATA ===")
-        for table_name, col_data in st.session_state.column_values.items():
-            if 'sample_data' in col_data:
-                comprehensive_schema.append(f"{table_name} sample data:")
-                for i, row in enumerate(col_data['sample_data'][:2]):  # Show first 2 rows
-                    comprehensive_schema.append(f"  Row {i+1}: {row}")
-                comprehensive_schema.append("")
-    else:
-        # Fallback to basic information
-        try:
-            import sqlite3
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            for table_name in table_schemas.keys():
-                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-                count = cursor.fetchone()[0]
-                comprehensive_schema.append(f"Sample data: {table_name} has {count} records")
-                
-                # Add sample values for key columns
-                if table_name == "accounts":
-                    cursor.execute("SELECT DISTINCT type FROM accounts LIMIT 5")
-                    types = [row[0] for row in cursor.fetchall()]
-                    comprehensive_schema.append(f"Account types available: {', '.join(types)}")
-            conn.close()
-        except:
-            pass
-    
-    # Add validation checklist
-    comprehensive_schema.append("")
-    comprehensive_schema.append("VALIDATION CHECKLIST:")
-    comprehensive_schema.append("- Does the query use the correct table names?")
-    comprehensive_schema.append("- Are the JOIN conditions using the right foreign keys?")
-    comprehensive_schema.append("- Are all required columns included in the SELECT?")
-    comprehensive_schema.append("- Are the WHERE conditions using the correct column names?")
-    comprehensive_schema.append("- Is the query logically sound for the requested data?")
-    
-    st_print(f"📚 Comprehensive schema context created with {len(comprehensive_schema)} items")
-    st_print(f"🔍 Schema context preview:")
-    for i, item in enumerate(comprehensive_schema[:10]):  # Show first 10 items
-        st_print(f"  {i+1}. {item}")
-    if len(comprehensive_schema) > 10:
-        st_print(f"  ... and {len(comprehensive_schema) - 10} more items")
-    
-    gen_ctx = {
-        "schema_context": comprehensive_schema,
-        "value_hints": ctx_bundle.get("value_hints", {}),
-        "exemplars": ctx_bundle.get("exemplars", []),
-        "clarified_values": {}
-    }
-    
-    # Step 3: Generate SQL
-    status_area.info("🧠 **Processing.... please wait** - Creating SQL query with AI...")
-    progress_bar.progress(60)
-    
-    t2 = time.time()
-    print(f"🧠 SQL GENERATOR AGENT: About to call generate method...")
-    sql = pipeline.generator.generate(nl_query, {}, gen_ctx, pipeline.schema_tables)
-    print(f"🧠 SQL GENERATOR AGENT: Generate method completed successfully")
-    diag.generated_sql = sql
-    diag.timings_ms["generation"] = int((time.time() - t2) * 1000)
-    
-    # Log SQL generator agent flow
-    sql_generator_output = {
-        "agent": "SQL_GENERATOR",
-        "input": {
-            "query": nl_query,
-            "schema_context_count": len(gen_ctx.get('schema_context', [])),
-            "value_hints_count": len(gen_ctx.get('value_hints', {})),
-            "exemplars_count": len(gen_ctx.get('exemplars', [])),
-            "clarified_values": gen_ctx.get('clarified_values', {})
-        },
-        "output": {
-            "generated_sql": sql,
-            "sql_length": len(sql),
-            "used_special_handler": "employee" in nl_query.lower() and "transaction" in nl_query.lower() and "customer" in nl_query.lower(),
-            "used_fallback": "LIMIT 10" in sql and ("SELECT * FROM" in sql)
-        },
-        "timing_ms": diag.timings_ms["generation"]
-    }
-    agent_flow.append(sql_generator_output)
-    
-    status_area.success("✅ **SQL Generated:** Query created successfully")
-    # Show a preview of the generated SQL
-    with st.expander("🔍 **Generated SQL Preview**", expanded=False):
-        st.code(sql, language="sql")
-    progress_bar.progress(70)
-    
-    attempts = 0
-    last_error = None
-    
-    while attempts <= pipeline.cfg.max_retries:
-        # Step 4: Validate
-        status_area.info(f"🔍 **Processing.... please wait** - Checking query safety (attempt {attempts + 1})...")
-        progress_bar.progress(75)
-        
-        t3 = time.time()
-        ok, reason = pipeline.validator.is_safe(sql, pipeline.schema_tables)
-        diag.timings_ms.setdefault("validation", 0)
-        diag.timings_ms["validation"] += int((time.time() - t3) * 1000)
-        
-        # Log validator agent flow
-        validator_output = {
-            "agent": "VALIDATOR",
-            "attempt": attempts + 1,
-            "input": {
-                "sql": sql,
-                "schema_tables": list(pipeline.schema_tables.keys())
-            },
-            "output": {
-                "is_safe": ok,
-                "reason": reason,
-                "validation_passed": ok
-            },
-            "timing_ms": diag.timings_ms["validation"]
-        }
-        agent_flow.append(validator_output)
-        
-        if not ok:
-            status_area.warning(f"⚠️ **Validation Failed:** {reason}")
-            status_area.info("🔄 **Processing.... please wait** - Improving the query...")
-            
-            diag.validator_fail_reasons.append(reason or "unknown")
-            attempts += 1
-            diag.retries = attempts
-            if attempts > pipeline.cfg.max_retries:
-                status_area.error("❌ **Max Retries Reached:** Could not generate valid SQL")
-                break
-            
-            sql = pipeline.generator.repair_sql(nl_query, gen_ctx, hint=reason)
-            continue
-        
-        status_area.success("✅ **Validation Passed:** SQL query is safe to execute")
-        progress_bar.progress(80)
-        
-        # Step 5: Execute
-        status_area.info("⚡ **Processing.... please wait** - Running query to get your results...")
-        progress_bar.progress(85)
-        
-        t4 = time.time()
-        exec_result = pipeline.executor.run_query(sql, limit=pipeline.cfg.sql_row_limit)
-        diag.timings_ms["execution"] = int((time.time() - t4) * 1000)
-        
-        # Log executor agent flow
-        executor_output = {
-            "agent": "EXECUTOR",
-            "input": {
-                "sql": sql,
-                "limit": pipeline.cfg.sql_row_limit
-            },
-            "output": {
-                "success": exec_result.get("success", False),
-                "results_count": len(exec_result.get("results", [])),
-                "error": exec_result.get("error", None),
-                "execution_time_ms": diag.timings_ms["execution"]
-            },
-            "timing_ms": diag.timings_ms["execution"]
-        }
-        agent_flow.append(executor_output)
-        
-        if exec_result.get("success"):
-            status_area.success(f"✅ **Execution Successful:** Found {len(exec_result.get('results', []))} results")
-            progress_bar.progress(90)
-            
-            diag.final_sql = sql
-            diag.retries = attempts
-            
-            # Step 6: Summarize
-            status_area.info("📝 **Processing.... please wait** - Preparing your results summary...")
-            progress_bar.progress(95)
-            
-            t5 = time.time()
-            out = pipeline.summarizer.summarize(nl_query, exec_result)
-            diag.timings_ms["summarization"] = int((time.time() - t5) * 1000)
-            
-            # Log summarizer agent flow
-            summarizer_output = {
-                "agent": "SUMMARIZER",
-                "input": {
-                    "query": nl_query,
-                    "results_count": len(exec_result.get('results', [])),
-                    "execution_success": exec_result.get("success", False)
-                },
-                "output": {
-                    "summary_length": len(out.get("summary", "")),
-                    "has_suggestions": "suggestions" in out,
-                    "suggestions_count": len(out.get("suggestions", []))
-                },
-                "timing_ms": diag.timings_ms["summarization"]
-            }
-            agent_flow.append(summarizer_output)
-            
-            out["sql"] = sql
-            out["diagnostics"] = diag.__dict__
-            out["success"] = True
-            out["generated_sql"] = diag.generated_sql
-            out["agent_flow"] = agent_flow  # Add agent flow to output
-            
-            # Add planner suggestions if available
-            if hasattr(pipeline, 'planner') and hasattr(pipeline.planner, 'analyze_query'):
-                plan = pipeline.planner.analyze_query(nl_query)
-                if plan.get("follow_up_suggestions"):
-                    out["suggestions"] = plan["follow_up_suggestions"]
-            
-            total_time = int((time.time() - start_all) * 1000)
-            status_area.success(f"🎉 **Pipeline Complete:** Successfully processed in {total_time}ms")
-            
-            # Show timing breakdown
-            with st.expander("⏱️ **Processing Time Breakdown**", expanded=False):
-                timing_text = f"""
-                - **Planning:** {diag.timings_ms.get('planning', 0)}ms
-                - **Context Retrieval:** {diag.timings_ms.get('retrieval', 0)}ms
-                - **SQL Generation:** {diag.timings_ms.get('generation', 0)}ms
-                - **Validation:** {diag.timings_ms.get('validation', 0)}ms
-                - **Execution:** {diag.timings_ms.get('execution', 0)}ms
-                - **Summarization:** {diag.timings_ms.get('summarization', 0)}ms
-                - **Total Time:** {total_time}ms
-                """
-                st.markdown(timing_text)
-            
-            progress_bar.progress(100)
-            
-            return out
-        
-                # If execution failed, try repair
-        err = exec_result.get("error", "unknown")
-        status_area.warning(f"⚠️ **Execution Failed:** {err}")
-        status_area.info("🔄 **Processing.... please wait** - Improving the query...")
-        
-        diag.executor_errors.append(err)
-        last_error = err
-        attempts += 1
-        diag.retries = attempts
-        if attempts > pipeline.cfg.max_retries:
-            status_area.error("❌ **Max Retries Reached:** Could not execute SQL successfully")
-            break
-        
-        sql = pipeline.generator.repair_sql(nl_query, gen_ctx, hint=err)
-
-    # Failed after retries
-    total_ms = int((time.time() - start_all) * 1000)
-    diag.timings_ms["total"] = total_ms
-    
-    status_area.error(f"❌ **Pipeline Failed:** Could not complete after {total_ms}ms")
-    
-    return {
-        "success": False,
-        "error": last_error or "Could not produce safe SQL",
-        "sql": sql,
-        "diagnostics": diag.__dict__,
-    }
-
-# Initialize in-memory database
-@st.cache_resource
-def initialize_in_memory_database():
-    """Initialize the in-memory database with schema and data"""
-    try:
-        print("🚀 Starting Database Initialization...")
-        conn, stats = initialize_database()
-        
-        # Store database stats in session state
-        st.session_state.db_stats = stats
-        st.session_state.db_initialized = True
-        
-        print(f"✅ Database initialized with {stats['total_tables']} tables and {stats['total_rows']:,} total rows")
-        return conn
-    except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
-        st.error(f"Database initialization failed: {e}")
-        return None
-
-# Validate embeddings at startup
-@st.cache_resource
-def validate_embeddings():
-    """Validate that Ollama is available and can generate embeddings"""
-    try:
-        print("🧠 Validating Ollama embeddings...")
-        
-        # Import the embedder
-        from backend.embedder import OllamaEmbedder
-        
-        # Test embedding generation
-        embedder = OllamaEmbedder()
-        
-        # Test with a simple text
-        test_text = "This is a test for embedding validation"
-        embedding = embedder.generate_embedding(test_text)
-        
-        if embedding:
-            print(f"✅ Embedding validation successful: {len(embedding)} dimensions")
-            st.session_state.embeddings_validated = True
-            return True
-                    else:
-            print("❌ Embedding validation failed: No embedding generated")
-            st.session_state.embeddings_validated = False
-            return False
-            
-    except Exception as e:
-        print(f"❌ Embedding validation failed: {e}")
-        st.session_state.embeddings_validated = False
-        return False
-
-# Initialize database on first load
-if 'db_initialized' not in st.session_state:
-    # Show initialization progress
-    st.markdown("## 🚀 **System Initialization**")
-    st.info("🔄 **System starting up.... please wait** This may take a few moments while we prepare everything for you.")
-    
-    # Create progress indicators
-    init_progress = st.progress(0)
-    init_status = st.empty()
-    
-    # Step 1: Validate embeddings
-    init_status.info("🧠 **Setting up.... please wait** - Checking AI embedding system...")
-    init_progress.progress(20)
-    print("🔍 Validating embeddings at startup...")
-    embeddings_valid = validate_embeddings()
-    
-    # Step 2: Initialize database
-    init_status.info("🗄️ **Setting up.... please wait** - Loading database into memory...")
-    init_progress.progress(40)
-    db_conn = initialize_in_memory_database()
-    
-    if db_conn:
-        st.session_state.db_connection = db_conn
-        
-        # Step 3: Extract schema and column information
-        init_status.info("📋 **Setting up.... please wait** - Learning database structure...")
-        init_progress.progress(60)
-        
-        from backend.db_init import DatabaseInitializer
-        initializer = DatabaseInitializer()
-        initializer.conn = db_conn
-        initializer.cursor = db_conn.cursor()
-        
-        # Extract schema and column information
-        initializer._extract_schema_info()
-        initializer._extract_column_values()
-        
-        # Store in session state
-        st.session_state.schema_info = initializer.get_schema_info()
-        st.session_state.column_values = initializer.get_column_values()
-        
-        print("✅ Enhanced database information extracted and stored")
-        
-        # Step 4: Populate vector database
-        init_status.info("📊 **Setting up.... please wait** - Preparing AI knowledge base...")
-        init_progress.progress(80)
-        
-        try:
-            print("📊 Populating vector database with schema and column information...")
-            retriever = RetrieverAgent(CHROMA_PATH)
-            retriever.populate_vector_database(st.session_state.schema_info, st.session_state.column_values)
-            print("✅ Vector database populated successfully")
-        except Exception as e:
-            print(f"⚠️ Warning: Failed to populate vector database: {e}")
-            print("🔄 Continuing without vector database population")
-        
-        # Step 5: Finalize initialization
-        init_status.info("⚙️ **Setting up.... please wait** - Finalizing system startup...")
-        init_progress.progress(90)
-        
-        # Check if embeddings are working for vector search
-        if 'embeddings_validated' in st.session_state and not st.session_state.embeddings_validated:
-            print("⚠️ Embeddings not working - vector search will be disabled")
-            st.session_state.vector_search_disabled = True
-        else:
-            st.session_state.vector_search_disabled = False
-        
-        # Complete initialization
-        init_progress.progress(100)
-        init_status.success("✅ **System initialization complete!** Ready to process queries.")
-        
-        # Clear the initialization UI after a moment
-        time.sleep(2)
-        init_progress.empty()
-        init_status.empty()
-        
-    else:
-        init_status.error("❌ **Initialization Failed:** Database initialization failed. Please check the console for errors.")
-        st.stop()
-
-# Use in-memory database connection
-DB_PATH = ":memory:"  # In-memory database
-CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
-LLAMA_MODEL_PATH = os.getenv("LLAMA_MODEL_PATH", "./models/llama-2-7b-chat.Q4_K_M.gguf")
-
-# Get schema from the initialized database
-if 'db_connection' in st.session_state:
-    cursor = st.session_state.db_connection.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [row[0] for row in cursor.fetchall()]
-    
-    schema_tables = {}
-    for table in tables:
-        cursor.execute(f"PRAGMA table_info({table})")
-        columns = cursor.fetchall()
-        schema_tables[table] = [col[1] for col in columns]
-    
-    print(f"📋 Schema loaded from in-memory database: {list(schema_tables.keys())}")
-else:
-    # Fallback schema if database not initialized
-schema_tables = {
-    "accounts": ["id", "customer_id", "account_number", "type", "balance", "opened_at", "interest_rate", "status", "branch_id", "created_at", "updated_at"],
-    "branches": ["id", "name", "address", "city", "state", "zip_code", "manager_id", "created_at", "updated_at"],
-        "customers": ["id", "email", "phone", "address", "first_name", "last_name", "date_of_birth", "gender", "national_id", "created_at", "updated_at", "branch_id"],
-    "employees": ["id", "branch_id", "name", "email", "phone", "position", "hire_date", "salary", "created_at", "updated_at"],
-    "transactions": ["id", "account_id", "transaction_date", "amount", "type", "description", "status", "created_at", "updated_at", "employee_id"]
-}
-
-# Initialize pipeline components with progress indicator
-if 'pipeline_initialized' not in st.session_state:
-    pipeline_status = st.empty()
-    pipeline_status.info("🔧 **Setting up.... please wait** - Preparing AI agents...")
-    
-    print(f"🧠 Initializing SQL Generator with model path: {LLAMA_MODEL_PATH}")
-generator = SQLGeneratorAgent(model_path=LLAMA_MODEL_PATH)
-generator.schema_tables = schema_tables
-
-    pipeline_status.info("🔧 **Setting up.... please wait** - Connecting all AI components...")
-pipeline = NL2SQLPipeline(
-    planner=PlannerAgent(schema_tables),
-    retriever=RetrieverAgent(db_path=CHROMA_PATH),
-    generator=generator,
-    validator=ValidatorAgent(schema_tables),
-        executor=ExecutorAgent(DB_PATH, db_connection=st.session_state.get('db_connection')),
-    summarizer=SummarizerAgent(),
-    schema_tables=schema_tables,
-    config=PipelineConfig()
+# Page configuration
+st.set_page_config(
+    page_title="SQL RAG Agent",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-    
-    st.session_state.pipeline = pipeline
-    st.session_state.pipeline_initialized = True
-    pipeline_status.success("✅ **Pipeline initialized successfully!**")
-    
-    # Clear the pipeline status after a moment
-    time.sleep(1)
-    pipeline_status.empty()
-else:
-    pipeline = st.session_state.pipeline
 
-# Show startup message if this is the first load
-if 'app_started' not in st.session_state:
-    st.markdown("""
-    ## 🎉 **Welcome to NL→SQL Assistant!**
+# Custom CSS for enhanced UI
+st.markdown("""
+<style>
+    /* Dark theme styling */
+    .main {
+        background-color: #0e1117;
+        color: #fafafa;
+    }
     
-    This application converts natural language queries into SQL using advanced AI agents.
+    /* Security guards styling */
+    .security-guard {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 12px;
+        margin: 8px 0;
+    }
     
-    **Key Features:**
-    - 🤖 **Intelligent Query Analysis**: Understands complex business questions
-    - 🧠 **LLM-Powered Generation**: Uses local Llama model for SQL generation
-    - 🔍 **Vector Search**: Enhanced context retrieval with Ollama embeddings
-    - 🗄️ **In-Memory Database**: Fast SQLite database with banking data
-    - 🔧 **Thread-Safe Execution**: Handles multiple queries without conflicts
+    .security-guard.passed {
+        border-left: 4px solid #00ff00;
+    }
     
-    **Ready to start!** Enter your query below.
-    """)
-    st.session_state.app_started = True
+    .security-guard.failed {
+        border-left: 4px solid #ff0000;
+    }
+    
+    .security-guard.warning {
+        border-left: 4px solid #ffaa00;
+    }
+    
+    /* Recent queries styling */
+    .recent-query {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 10px;
+        margin: 6px 0;
+        cursor: pointer;
+    }
+    
+    .recent-query:hover {
+        background-color: #2a2a2a;
+    }
+    
+    /* Tech stack styling */
+    .tech-stack {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 12px 0;
+    }
+    
+    .tech-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #333;
+    }
+    
+    .tech-item:last-child {
+        border-bottom: none;
+    }
+    
+    /* Timing dashboard styling */
+    .timing-card {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 8px 0;
+    }
+    
+    .timing-metric {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+    }
+    
+    /* CoT steps styling */
+    .cot-step {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 12px;
+        margin: 8px 0;
+        border-left: 4px solid #007acc;
+    }
+    
+    .cot-step.completed {
+        border-left-color: #00ff00;
+    }
+    
+    .cot-step.error {
+        border-left-color: #ff0000;
+    }
+    
+    /* Pagination styling */
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin: 16px 0;
+    }
+    
+    .pagination button {
+        background-color: #007acc;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .pagination button:disabled {
+        background-color: #555;
+        cursor: not-allowed;
+    }
+    
+    /* Initialization status styling */
+    .init-status {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 12px 0;
+    }
+    
+    .init-component {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #333;
+    }
+    
+    .init-component:last-child {
+        border-bottom: none;
+    }
+    
+    .status-icon {
+        font-size: 18px;
+    }
+    
+    .status-icon.passed { color: #00ff00; }
+    .status-icon.failed { color: #ff0000; }
+    .status-icon.error { color: #ffaa00; }
+    .status-icon.pending { color: #888888; }
+    .status-icon.running { color: #007acc; }
+</style>
+""", unsafe_allow_html=True)
 
-st.title("🤖 NL→SQL Assistant")
+class SecurityGuard:
+    """Security validation for SQL queries"""
+    
+    def __init__(self):
+        self.guards = {
+            "LIMIT_INJECTION": False,
+            "DANGEROUS_OPERATION": False,
+            "INVALID_OPERATION": False,
+            "TABLE_VALIDATION": False,
+            "COMPLEXITY_CHECK": False
+        }
+    
+    def apply_guards(self, sql_query: str) -> Dict[str, Any]:
+        """Apply security guards to SQL query"""
+        guards_applied = {}
+        
+        # Check for LIMIT clause
+        if "LIMIT" not in sql_query.upper():
+            guards_applied["LIMIT_INJECTION"] = "Added LIMIT 100"
+            sql_query += " LIMIT 100"
+        
+        # Check for dangerous operations
+        dangerous_ops = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
+        for op in dangerous_ops:
+            if op in sql_query.upper():
+                guards_applied["DANGEROUS_OPERATION"] = f"Blocked {op} operation"
+                return {"blocked": True, "reason": f"Dangerous operation: {op}"}
+        
+        # Check for invalid operations
+        if ";" in sql_query and sql_query.count(";") > 1:
+            guards_applied["INVALID_OPERATION"] = "Multiple statements detected"
+            return {"blocked": True, "reason": "Multiple SQL statements"}
+        
+        # Table validation (simplified)
+        valid_tables = ["customers", "accounts", "transactions", "branches", "employees"]
+        query_upper = sql_query.upper()
+        for table in valid_tables:
+            if f"FROM {table.upper()}" in query_upper or f"JOIN {table.upper()}" in query_upper:
+                guards_applied["TABLE_VALIDATION"] = f"Validated table: {table}"
+                break
+        else:
+            guards_applied["TABLE_VALIDATION"] = "No valid tables found"
+        
+        # Complexity check
+        if sql_query.count("SELECT") > 2 or sql_query.count("JOIN") > 3:
+            guards_applied["COMPLEXITY_CHECK"] = "Query complexity reduced"
+            sql_query = sql_query.split("SELECT")[0] + "SELECT * FROM customers LIMIT 10"
+        
+        return {
+            "sql": sql_query,
+            "guards_applied": guards_applied,
+            "total_guards": len(guards_applied)
+        }
 
-# Display database initialization information
-if 'db_stats' in st.session_state:
+class QueryHistory:
+    """Manage recent queries in session state"""
+    
+    def __init__(self):
+        # Ensure query_history is always a list in session state
+        if "query_history" not in st.session_state:
+            st.session_state.query_history = []
+        elif not isinstance(st.session_state.query_history, list):
+            # If it's not a list, reset it
+            st.session_state.query_history = []
+    
+    def add_query(self, query: str, sql: str, results_count: int, timestamp: str):
+        """Add a query to history"""
+        # Ensure we're working with a list
+        if not isinstance(st.session_state.query_history, list):
+            st.session_state.query_history = []
+        
+        query_entry = {
+            "query": query,
+            "sql": sql,
+            "results_count": results_count,
+            "timestamp": timestamp
+        }
+        st.session_state.query_history.insert(0, query_entry)
+        
+        # Keep only last 10 queries
+        if len(st.session_state.query_history) > 10:
+            st.session_state.query_history = st.session_state.query_history[:10]
+    
+    def get_history(self) -> List[Dict[str, Any]]:
+        """Get query history"""
+        # Ensure we return a list
+        if not isinstance(st.session_state.query_history, list):
+            st.session_state.query_history = []
+        return st.session_state.query_history
+
+class TimingTracker:
+    """Track timing information for queries"""
+    
+    def __init__(self):
+        self.start_time = None
+        self.agent_timings = {}
+        self.llm_interactions = []
+        self.vectordb_interactions = []
+        self.database_interactions = []
+    
+    def start_tracking(self):
+        """Start timing tracking"""
+        self.start_time = time.time()
+        self.agent_timings = {}
+        self.llm_interactions = []
+        self.vectordb_interactions = []
+        self.database_interactions = []
+    
+    def track_agent(self, agent_name: str, duration: float):
+        """Track agent timing"""
+        self.agent_timings[agent_name] = duration
+    
+    def track_llm_interaction(self, operation: str, duration: float):
+        """Track LLM interaction timing"""
+        self.llm_interactions.append({
+            "operation": operation,
+            "duration": duration,
+            "timestamp": time.time()
+        })
+    
+    def track_vectordb_interaction(self, operation: str, duration: float):
+        """Track VectorDB interaction timing"""
+        self.vectordb_interactions.append({
+            "operation": operation,
+            "duration": duration,
+            "timestamp": time.time()
+        })
+    
+    def track_database_interaction(self, operation: str, duration: float):
+        """Track database interaction timing"""
+        self.database_interactions.append({
+            "operation": operation,
+            "duration": duration,
+            "timestamp": time.time()
+        })
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get timing summary"""
+        if not self.start_time:
+            return {}
+        
+        total_time = time.time() - self.start_time
+        total_llm_time = sum(interaction["duration"] for interaction in self.llm_interactions)
+        total_vectordb_time = sum(interaction["duration"] for interaction in self.vectordb_interactions)
+        total_database_time = sum(interaction["duration"] for interaction in self.database_interactions)
+        
+        return {
+            "total_time": total_time,
+            "total_time_ms": int(total_time * 1000),
+            "agent_timings": self.agent_timings,
+            "llm_interactions": self.llm_interactions,
+            "vectordb_interactions": self.vectordb_interactions,
+            "database_interactions": self.database_interactions,
+            "total_llm_time": total_llm_time,
+            "total_llm_time_ms": int(total_llm_time * 1000),
+            "total_vectordb_time": total_vectordb_time,
+            "total_vectordb_time_ms": int(total_vectordb_time * 1000),
+            "total_database_time": total_database_time,
+            "total_database_time_ms": int(total_database_time * 1000)
+        }
+
+class CoTStep:
+    """Chain-of-Thought step"""
+    
+    def __init__(self, agent: str, action: str, details: str = "", status: str = "pending"):
+        self.agent = agent
+        self.action = action
+        self.details = details
+        self.status = status  # pending, running, completed, error
+        self.timestamp = time.time()
+
+class CoTWorkflow:
+    """Manage Chain-of-Thought workflow"""
+    
+    def __init__(self):
+        self.steps = []
+        self.current_step = 0
+    
+    def add_step(self, agent: str, action: str, details: str = ""):
+        """Add a CoT step"""
+        step = CoTStep(agent, action, details)
+        self.steps.append(step)
+    
+    def update_current_step(self, status: str, details: str = ""):
+        """Update current step status"""
+        if self.current_step < len(self.steps):
+            self.steps[self.current_step].status = status
+            if details:
+                self.steps[self.current_step].details = details
+            self.current_step += 1
+    
+    def update_step_status(self, step_index: int, status: str, details: str = ""):
+        """Update specific step status by index"""
+        if 0 <= step_index < len(self.steps):
+            self.steps[step_index].status = status
+            if details:
+                self.steps[step_index].details = details
+    
+    def get_steps(self) -> List[CoTStep]:
+        """Get all steps"""
+        return self.steps
+
+class PaginationManager:
+    """Manage pagination for large result sets"""
+    
+    def __init__(self, results: List[Dict[str, Any]], items_per_page: int = 10):
+        self.results = results
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        self.total_pages = (len(results) + items_per_page - 1) // items_per_page
+    
+    def get_current_page_data(self) -> List[Dict[str, Any]]:
+        """Get data for current page"""
+        start_idx = self.current_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        return self.results[start_idx:end_idx]
+    
+    def next_page(self):
+        """Go to next page"""
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+    
+    def prev_page(self):
+        """Go to previous page"""
+        if self.current_page > 0:
+            self.current_page -= 1
+    
+    def go_to_page(self, page: int):
+        """Go to specific page"""
+        if 0 <= page < self.total_pages:
+            self.current_page = page
+
+def render_security_validation_section(guards: Dict[str, Any]):
+    """Render security validation section"""
+    st.markdown("### 🛡️ Security & Validation")
+    
+    if not guards:
+        st.info("No security guards applied")
+        return
+    
+    for guard_name, guard_details in guards.get("guards_applied", {}).items():
+        guard_class = "passed" if "Added" in guard_details or "Validated" in guard_details else "warning"
+        st.markdown(f"""
+        <div class="security-guard {guard_class}">
+            <strong>{guard_name}:</strong> {guard_details}
+        </div>
+        """, unsafe_allow_html=True)
+
+def render_recent_queries_sidebar():
+    """Render recent queries in sidebar"""
+    st.sidebar.markdown("### 📋 Recent Queries")
+    
+    # Use the existing QueryHistory instance from session state
+    if 'query_history' in st.session_state:
+        query_history = st.session_state.query_history
+        # Ensure we get a list from the QueryHistory object
+        if hasattr(query_history, 'get_history'):
+            history = query_history.get_history()
+        else:
+            # If it's not a QueryHistory object, try to use it directly
+            history = query_history if isinstance(query_history, list) else []
+    else:
+        history = []
+    
+    # Ensure history is a list
+    if not isinstance(history, list):
+        st.sidebar.warning("Query history format error")
+        history = []
+    
+    if not history:
+        st.sidebar.info("No recent queries")
+        return
+    
+    for i, entry in enumerate(history):
+        # Ensure entry is a dictionary with required keys
+        if isinstance(entry, dict) and 'query' in entry:
+            with st.sidebar.expander(f"Query {i+1}: {entry['query'][:30]}...", expanded=False):
+                st.write(f"**Query:** {entry['query']}")
+                st.write(f"**SQL:** `{entry.get('sql', 'N/A')}`")
+                st.write(f"**Results:** {entry.get('results_count', 0)} records")
+                st.write(f"**Time:** {entry.get('timestamp', 'N/A')}")
+        else:
+            st.sidebar.warning(f"Invalid query entry format: {type(entry)}")
+
+def render_tech_stack_about():
+    """Render tech stack information in sidebar"""
+    st.sidebar.markdown("### 🛠️ Tech Stack")
+    
+    tech_stack = {
+        "Frontend": "Streamlit",
+        "Backend": "Python 3.9+",
+        "Database": "SQLite (In-Memory)",
+        "Vector DB": "ChromaDB",
+        "LLM": "OpenAI GPT-4",
+        "Embeddings": "OpenAI text-embedding-ada-002",
+        "PDF Export": "ReportLab",
+        "Testing": "Pytest + Custom Integration Tests"
+    }
+    
+    for tech, description in tech_stack.items():
+        st.sidebar.markdown(f"**{tech}:** {description}")
+
+def render_tech_stack_with_tests():
+    """Render tech stack with integration test results for Developer view"""
+    st.markdown("#### 🛠️ Technology Stack & Integration Tests")
+    
+    # Run integration tests if not already cached
+    if 'integration_test_results' not in st.session_state:
+        with st.spinner("🧪 Running integration tests..."):
+            st.session_state.integration_test_results = get_integration_test_results()
+    
+    test_results = st.session_state.integration_test_results
+    
+    # Tech Stack Overview
+    st.markdown("##### 📋 Technology Stack")
+    tech_stack = {
+        "Frontend": "Streamlit",
+        "Backend": "Python 3.9+",
+        "Database": "SQLite (In-Memory)",
+        "Vector DB": "ChromaDB",
+        "LLM": "OpenAI GPT-4",
+        "Embeddings": "OpenAI text-embedding-ada-002",
+        "PDF Export": "ReportLab",
+        "Testing": "Pytest + Custom Integration Tests"
+    }
+    
+    for tech, description in tech_stack.items():
+        st.markdown(f"**{tech}:** {description}")
+    
     st.markdown("---")
-    st.subheader("🗄️ **Database Information**")
     
-    stats = st.session_state.db_stats
-    col1, col2, col3 = st.columns(3)
+    # Integration Test Results
+    st.markdown("##### 🧪 Integration Test Results")
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Tests", len(test_results['tests']))
+    with col2:
+        st.metric("Passed", test_results['passed_count'], delta=f"+{test_results['passed_count']}")
+    with col3:
+        st.metric("Failed", test_results['failed_count'], delta=f"-{test_results['failed_count']}")
+    with col4:
+        st.metric("Duration", f"{test_results['total_duration']:.2f}s")
+    
+    # Individual test results
+    st.markdown("##### 📊 Test Details")
+    
+    for test_name, result in test_results['tests'].items():
+        # Status icon and color
+        if result['status'] == 'passed':
+            status_icon = "✅"
+            status_color = "#00FF00"
+            border_color = "#00FF00"
+        else:
+            status_icon = "❌"
+            status_color = "#FF0000"
+            border_color = "#FF0000"
+        
+        # Test result card
+        st.markdown(f"""
+        <div style="
+            border: 2px solid {border_color};
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            background-color: #1e1e1e;
+        ">
+            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 1.5em; margin-right: 8px;">{status_icon}</span>
+                <strong style="color: {status_color};">{result['name']}</strong>
+                <span style="margin-left: auto; font-size: 0.8em; color: #888;">
+                    {result['duration']:.2f}s
+                </span>
+            </div>
+            <div style="color: #ccc; font-size: 0.9em;">
+                {result['details']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Refresh button
+    if st.button("🔄 Refresh Tests", type="secondary"):
+        with st.spinner("🧪 Running integration tests..."):
+            st.session_state.integration_test_results = get_integration_test_results()
+        st.rerun()
+
+def render_detailed_timing_dashboard(timing_summary: Dict[str, Any]):
+    """Render detailed timing dashboard"""
+    st.markdown("### ⏱️ Detailed Timing Dashboard")
+    
+    if not timing_summary:
+        st.info("No timing data available")
+        return
+    
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("📊 Total Tables", stats['total_tables'])
+        st.metric("Total Time", f"{timing_summary.get('total_time', 0):.3f}s")
     
     with col2:
-        st.metric("📈 Total Rows", f"{stats['total_rows']:,}")
+        st.metric("LLM Time", f"{timing_summary.get('total_llm_time', 0):.3f}s")
     
     with col3:
-        st.metric("💾 Database Type", "In-Memory SQLite")
+        st.metric("VectorDB Time", f"{timing_summary.get('total_vectordb_time', 0):.3f}s")
     
-    # Show table details in an expander
-    with st.expander("📋 **Table Details**", expanded=False):
-        for table_name, table_stats in stats['tables'].items():
-            st.write(f"**{table_name}**: {table_stats['rows']:,} rows, {table_stats['columns']} columns")
+    with col4:
+        st.metric("Database Time", f"{timing_summary.get('total_database_time', 0):.3f}s")
     
-    st.markdown("---")
-
-# Add health dashboard
-st.subheader("🔍 **System Health Dashboard**")
-
-# Show embedding validation status
-if 'embeddings_validated' in st.session_state:
-    if st.session_state.embeddings_validated:
-        st.success("✅ **Embeddings Validated**: Ollama is working correctly")
-        if 'vector_search_disabled' in st.session_state and not st.session_state.vector_search_disabled:
-            st.success("🔍 **Vector Search**: Available for enhanced context retrieval")
-    else:
-        st.error("❌ **Embeddings Failed**: Ollama validation failed - vector search disabled")
-        st.info("ℹ️ **Note**: App will work with basic SQL generation, but context retrieval may be limited")
-else:
-    st.info("⏳ **Embeddings**: Validation in progress...")
-
-# Create health dashboard
-health_results = create_health_dashboard(st.session_state.get('db_connection'))
-
-# Store health results in session state for sidebar
-st.session_state.health_results = health_results
-
-st.markdown("---")
-
-# Initialize session state for conversation history and execution logs
-if "conversation_history" not in st.session_state:
-    st.session_state.conversation_history = []
-if "execution_logs" not in st.session_state:
-    st.session_state.execution_logs = []
-
-# Create a custom print function that also logs to Streamlit
-def st_print(message):
-    """Print to console and also log to Streamlit execution view"""
-    print(message)
-    st.session_state.execution_logs.append(message)
-    # Keep only last 100 logs to prevent memory issues
-    if len(st.session_state.execution_logs) > 100:
-        st.session_state.execution_logs = st.session_state.execution_logs[-100:]
-
-# Create sidebar for execution view
-with st.sidebar:
-    st.header("🔍 **Execution View**")
-    st.markdown("Real-time control flow and agent interactions")
-    
-    # Add mode toggle
-    st.subheader("⚙️ **Settings**")
-    use_llm = st.checkbox("🧠 Use LLM (slower but smarter)", value=True)
-    if not use_llm:
-        st.warning("🔄 Fallback mode enabled - faster responses")
-    
-    # Add a clear logs button
-    if st.button("🗑️ Clear Logs"):
-        st.session_state.execution_logs = []
-        st.rerun()
-    
-    # Add a toggle for auto-scroll
-    auto_scroll = st.checkbox("📜 Auto-scroll to latest", value=True)
-    
-    # Add mini health status
-    if 'health_results' in st.session_state:
-        st.markdown("---")
-        st.subheader("🔍 **System Health**")
+    # Agent timings
+    if timing_summary.get("agent_timings"):
+        st.markdown("#### Agent Performance")
+        agent_timings = timing_summary["agent_timings"]
         
-        # Overall status
-        from health_checker import HealthStatus
-        healthy_count = sum(1 for h in st.session_state.health_results.values() if h.status == HealthStatus.HEALTHY)
-        error_count = sum(1 for h in st.session_state.health_results.values() if h.status == HealthStatus.ERROR)
-        
-        if error_count == 0:
-            st.success(f"✅ All systems healthy ({healthy_count}/{len(st.session_state.health_results)})")
-        elif error_count > 0:
-            st.error(f"❌ {error_count} system(s) have issues")
-        else:
-            st.warning(f"⚠️ Some systems need attention")
-        
-        # Component status
-        for component_name, health in st.session_state.health_results.items():
-            status_emoji = "✅" if health.status == HealthStatus.HEALTHY else "⚠️" if health.status == HealthStatus.WARNING else "❌"
-            st.markdown(f"**{component_name.title()}:** {status_emoji}")
-        
-        # Embedding validation status
-        if 'embeddings_validated' in st.session_state:
-            embed_status = "✅" if st.session_state.embeddings_validated else "❌"
-            st.markdown(f"**Embeddings:** {embed_status}")
-        
-        # Refresh health check button
-        if st.button("🔄 Refresh Health"):
-            # Clear health results to force refresh
-            if 'health_results' in st.session_state:
-                del st.session_state.health_results
-            st.rerun()
-    
-    # Display execution logs
-    if st.session_state.execution_logs:
-        st.subheader("📋 **Live Execution Logs**")
-        
-        # Create a container for logs with custom styling
-        log_container = st.container()
-        with log_container:
-            for i, log in enumerate(st.session_state.execution_logs):
-                # Color code different types of logs
-                if "ORCHESTRATOR" in log:
-                    st.markdown(f"🎯 **{log}**")
-                elif "PLANNER AGENT" in log:
-                    st.markdown(f"📋 {log}")
-                elif "RETRIEVER AGENT" in log:
-                    st.markdown(f"🔍 {log}")
-                elif "SQL GENERATOR AGENT" in log or "Generating SQL" in log:
-                    st.markdown(f"🧠 {log}")
-                elif "VALIDATOR AGENT" in log:
-                    st.markdown(f"🔍 {log}")
-                elif "EXECUTOR AGENT" in log:
-                    st.markdown(f"⚡ {log}")
-                elif "SUMMARIZER AGENT" in log:
-                    st.markdown(f"📝 {log}")
-                elif "LOCAL LLM" in log:
-                    st.markdown(f"💻 {log}")
-                elif "REMOTE LLM" in log:
-                    st.markdown(f"🌐 {log}")
-                elif "ERROR" in log or "❌" in log:
-                    st.error(log)
-                elif "SUCCESS" in log or "✅" in log:
-                    st.success(log)
-                elif "WARNING" in log or "⚠️" in log:
-                    st.warning(log)
-                else:
-                    st.text(log)
-                
-                # Add a small separator between logs
-                if i < len(st.session_state.execution_logs) - 1:
-                    st.markdown("---")
-    else:
-        st.info("📋 No execution logs yet. Start a query to see real-time control flow!")
+        for agent, duration in agent_timings.items():
+            st.markdown(f"""
+            <div class="timing-card">
+                <div class="timing-metric">
+                    <span><strong>{agent}:</strong></span>
+                    <span>{duration:.3f}s</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-query = st.chat_input("Ask about the database…")
-
-# Handle clarification responses from user
-if "pending_clarifications" in st.session_state and query:
-    st.markdown("### 🔄 **Processing Clarification Response**")
-    st.info(f"**Original Query:** {st.session_state.original_query}")
-    st.info(f"**Your Clarification Response:** {query}")
+def render_cot_workflow(cot_workflow: CoTWorkflow):
+    """Render Chain-of-Thought workflow"""
+    st.markdown("### 🧠 Chain-of-Thought Analysis")
     
-    # Parse the clarification response
-    clarification_values = {}
-    pending_clarifications = st.session_state.pending_clarifications
+    steps = cot_workflow.get_steps()
     
-    # Extract clarification values from user input
-    for clarification in pending_clarifications:
-        field_name = clarification.get("field", "")
-        prompt = clarification.get("prompt", "")
-        default_value = clarification.get("default", "")
+    if not steps:
+        st.info("No CoT steps available")
+        return
+    
+    for i, step in enumerate(steps):
+        status_icon = {
+            "pending": "⏳",
+            "running": "🔄",
+            "completed": "✅",
+            "error": "❌"
+        }.get(step.status, "❓")
         
-        # Try to extract the value from user input
-        if field_name.lower() in query.lower():
-            # Look for patterns like "Q1: value" or "date range: value"
-            import re
-            patterns = [
-                rf"{field_name}:\s*([^,\n]+)",
-                rf"{field_name}\s*=\s*([^,\n]+)",
-                rf"{field_name}\s*([^,\n]+)"
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, query, re.IGNORECASE)
-                if match:
-                    clarification_values[field_name] = match.group(1).strip()
-                    break
-            
-            # If no pattern match, use default value
-            if field_name not in clarification_values and default_value:
-                clarification_values[field_name] = default_value
-    
-    # If we couldn't extract specific values, try to use the entire input as clarification
-    if not clarification_values and pending_clarifications:
-        # Use the entire query as the clarification for the first field
-        first_clarification = pending_clarifications[0]
-        field_name = first_clarification.get("field", "clarification")
-        clarification_values[field_name] = query
-    
-    st.success(f"✅ **Clarifications extracted:** {clarification_values}")
-    
-    # Store clarification values for pipeline processing
-    st.session_state.clarification_values = clarification_values
-    
-    # Now process the original query with clarifications
-    original_query = st.session_state.original_query
-    pipeline_response = st.session_state.pipeline_response
-    
-    # Create enhanced query with clarifications
-    enhanced_query = original_query
-    for field_name, value in clarification_values.items():
-        enhanced_query += f" ({field_name}: {value})"
-    
-    # Use the enhanced query for processing
-    query = enhanced_query
-    
-    # Clear the pending clarifications from session state but keep clarification_values
-    del st.session_state.pending_clarifications
-    del st.session_state.original_query
-    del st.session_state.pipeline_response
-    
-    st.success("✅ **Enhanced query ready for processing!**")
+        step_class = "completed" if step.status == "completed" else "error" if step.status == "error" else ""
+        
+        st.markdown(f"""
+        <div class="cot-step {step_class}">
+            <strong>{status_icon} {step.agent}:</strong> {step.action}
+            {f'<br><em>{step.details}</em>' if step.details else ''}
+        </div>
+        """, unsafe_allow_html=True)
 
-# Handle re-run queries from conversation history
-if "rerun_query" in st.session_state:
-    query = st.session_state.rerun_query
-    del st.session_state.rerun_query
-
-# Display conversation history
-if st.session_state.conversation_history:
-    st.subheader("📝 Conversation History")
-    for i, (user_query, response) in enumerate(st.session_state.conversation_history):
-        with st.expander(f"💬 Q{i+1}: {user_query[:50]}{'...' if len(user_query) > 50 else ''}", expanded=False):
-            # Add a button to re-run this query
-            if st.button(f"🔄 Re-run: {user_query[:30]}{'...' if len(user_query) > 30 else ''}", key=f"rerun_{i}"):
-                st.session_state.rerun_query = user_query
+def render_paginated_results(results: List[Dict[str, Any]], pagination_manager: PaginationManager):
+    """Render paginated results"""
+    st.markdown("### 📊 Query Results")
+    
+    if not results:
+        st.info("No results to display")
+        return
+    
+    # Show current page data
+    current_data = pagination_manager.get_current_page_data()
+    
+    if current_data:
+        st.dataframe(current_data, use_container_width=True)
+    
+    # Pagination controls
+    if pagination_manager.total_pages > 1:
+        st.markdown("#### Pagination")
+        
+        col1, col2, col3, col4 = st.columns([1, 2, 2, 1])
+        
+        with col1:
+            if st.button("⬅️ Previous", disabled=pagination_manager.current_page == 0):
+                pagination_manager.prev_page()
                 st.rerun()
-            
-            st.markdown(f"**Your Question:** {user_query}")
-            st.divider()
-            
-            if response.get("summary"):
-                st.markdown(response.get("summary"))
-            
-            if response.get("sql"):
-                with st.expander("🔧 SQL Query", expanded=False):
-                    st.code(response["sql"], language="sql")
-            
-            if response.get("table"):
-                import pandas as pd
-                df = pd.DataFrame(response["table"])
-                record_count = len(df)
-                st.subheader(f"📋 Results ({record_count:,} records)")
-                st.dataframe(df, use_container_width=True)
-    
-    st.divider()
+        
+        with col2:
+            st.write(f"Page {pagination_manager.current_page + 1} of {pagination_manager.total_pages}")
+        
+        with col3:
+            page_input = st.number_input("Go to page:", min_value=1, max_value=pagination_manager.total_pages, value=pagination_manager.current_page + 1)
+            if st.button("Go"):
+                pagination_manager.go_to_page(page_input - 1)
+                st.rerun()
+        
+        with col4:
+            if st.button("Next ➡️", disabled=pagination_manager.current_page == pagination_manager.total_pages - 1):
+                pagination_manager.next_page()
+                st.rerun()
 
-if query:
-    st_print(f"\n=== NEW QUERY: {query} ===")
+def render_initialization_status(init_report: Dict[str, Any]):
+    """Render initialization status"""
+    st.markdown("### 🚀 System Initialization Status")
     
-    # Display current query prominently
-    st.markdown("---")
-    st.markdown(f"### 💬 **Your Question:**")
-    st.info(f"**{query}**")
-    st.markdown("---")
+    if not init_report:
+        st.info("No initialization data available")
+        return
     
-    # Enhanced loading display with CSS animation
-    loading_css = """
-    <style>
-    .processing-container {
-        text-align: center;
-        padding: 20px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 10px;
-        color: white;
-        margin: 10px 0;
-    }
+    # Overall status
+    overall_status = init_report.get("overall_status", "unknown")
+    status_icon = {
+        "passed": "✅",
+        "failed": "❌",
+        "error": "⚠️",
+        "partial": "⚠️",
+        "pending": "⏳"
+    }.get(overall_status, "❓")
     
-    .loading-spinner {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid rgba(255,255,255,0.3);
-        border-radius: 50%;
-        border-top-color: #fff;
-        animation: spin 1s ease-in-out infinite;
-        margin-left: 10px;
-    }
+    st.markdown(f"**Overall Status:** {status_icon} {overall_status.upper()}")
     
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    </style>
-    """
-    st.markdown(loading_css, unsafe_allow_html=True)
-    # Create status display area
-    st.markdown("---")
-    st.markdown("""
-    <div class="processing-container">
-        <div style="font-size: 24px; margin-bottom: 10px;">🔄</div>
-        <div style="font-size: 18px; margin-bottom: 10px;">Processing.... please wait</div>
-        <div style="font-size: 14px; opacity: 0.9;">Our AI agents are working on your request</div>
-        <div class="loading-spinner"></div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Component status
+    components = init_report.get("components", {})
     
-    # Create a dedicated status area
-    status_area = st.empty()
-    progress_bar = st.progress(0)
-    
-    with st.spinner("🤖 AI is working on your query.... please wait, this may take a moment..."):
-        # Initialize status
-        status_area.info("🔄 **Processing.... please wait** - Starting up the AI system...")
-        progress_bar.progress(10)
+    for component_name, component_data in components.items():
+        status = component_data.get("status", "unknown")
+        message = component_data.get("message", "No message")
+        duration = component_data.get("duration", 0)
         
-        # Custom pipeline execution with real-time updates
+        status_icon_class = status
+        status_icon = {
+            "passed": "✅",
+            "failed": "❌",
+            "error": "⚠️",
+            "pending": "⏳",
+            "running": "🔄"
+        }.get(status, "❓")
+        
+        st.markdown(f"""
+        <div class="init-component">
+            <span><strong>{component_name.replace('_', ' ').title()}:</strong></span>
+            <span class="status-icon {status_icon_class}">{status_icon} {message}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if duration > 0:
+            st.caption(f"Duration: {duration:.3f}s")
+    
+    # Summary
+    summary = init_report.get("summary", {})
+    if summary:
+        st.markdown("#### Summary")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Components", summary.get("total_components", 0))
+        
+        with col2:
+            st.metric("Passed", summary.get("passed", 0))
+        
+        with col3:
+            st.metric("Failed/Errors", summary.get("failed", 0) + summary.get("errors", 0))
+    
+    # Errors and warnings
+    errors = init_report.get("errors", [])
+    warnings = init_report.get("warnings", [])
+    
+    if errors:
+        st.error("#### Errors")
+        for error in errors:
+            st.error(f"• {error}")
+    
+    if warnings:
+        st.warning("#### Warnings")
+        for warning in warnings:
+            st.warning(f"• {warning}")
+
+def export_pdf_report(session_state):
+    """Export current query results to PDF"""
     try:
-        # Check if we have clarification values from previous interaction
-        clarification_values = {}
-        if "pending_clarifications" in st.session_state and "clarification_values" in st.session_state:
-            clarification_values = st.session_state.clarification_values
-        
-        # Custom pipeline execution with real-time updates
-        resp = custom_pipeline_run_with_status(pipeline, query, status_area, progress_bar, clarification_values)
+        # Prepare query data for PDF
+        query_data = {
+            'timestamp': datetime.now().isoformat(),
+            'user': session_state.get('user_input', 'Unknown'),
+            'role': session_state.get('role_input', 'Unknown'),
+            'query': session_state.get('query_input', 'N/A'),
+            'sql': session_state.get('last_sql', 'N/A'),
+            'summary': session_state.get('last_summary', 'No summary available'),
+            'results': session_state.get('last_results', []),
+            'query_time': session_state.get('last_query_time', 0.0),
+            'guards': session_state.get('last_guards', {}),
+            'agent_timings': session_state.get('last_timing_summary', {}).get('agent_timings', {}),
+            'llm_interactions': session_state.get('last_timing_summary', {}).get('llm_interactions', []),
+            'total_time': session_state.get('last_timing_summary', {}).get('total_time', 0.0),
+            'total_time_ms': session_state.get('last_timing_summary', {}).get('total_time_ms', 0),
+            'total_llm_time': session_state.get('last_timing_summary', {}).get('total_llm_time', 0.0),
+            'total_llm_time_ms': session_state.get('last_timing_summary', {}).get('total_llm_time_ms', 0),
+            'total_vectordb_time': session_state.get('last_timing_summary', {}).get('total_vectordb_time', 0.0),
+            'total_vectordb_time_ms': session_state.get('last_timing_summary', {}).get('total_vectordb_time_ms', 0),
+            'total_database_time': session_state.get('last_timing_summary', {}).get('total_database_time', 0.0),
+            'total_database_time_ms': session_state.get('last_timing_summary', {}).get('total_database_time_ms', 0)
+        }
+
+        # Generate PDF
+        pdf_exporter = PDFExporter()
+        pdf_content = pdf_exporter.generate_query_report(query_data)
+
+        # Create download button
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"sql_rag_report_{timestamp}.pdf"
+
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=pdf_content,
+            file_name=filename,
+            mime="application/pdf"
+        )
+
+        st.success("✅ PDF report generated successfully!")
+
     except Exception as e:
-        st.error(f"❌ **Processing Error:** {str(e)}")
-        resp = {"success": False, "error": str(e), "agent_flow": []}
-        st_print(f"Pipeline failed with error: {str(e)}")
-        resp = custom_pipeline_run_with_status(pipeline, query, status_area, progress_bar, clarification_values)
+        st.error(f"❌ Error generating PDF: {str(e)}")
+        st.exception(e)
+
+def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, cot_workflow: CoTWorkflow) -> tuple:
+    """Execute real agent workflow with Chain-of-Thought tracking"""
+    timing_tracker.start_tracking()
     
-    # Clear the status area after completion
-    status_area.empty()
-    progress_bar.empty()
-    
-    st_print(f"Pipeline result: Success={resp.get('success', False)}")
-    
-    # Handle clarification responses in main UI
-    if resp.get("needs_clarification"):
-        st.markdown("### ❓ **Clarification Needed**")
-        st.warning("The AI needs more information to process your query properly.")
+    try:
+        # Add CoT steps for real-time display
+        cot_workflow.add_step("Planner", "Analyzing query intent and requirements")
+        cot_workflow.add_step("Retriever", "Retrieving relevant schema context")
+        cot_workflow.add_step("SQL Generator", "Generating SQL query")
+        cot_workflow.add_step("Validator", "Validating SQL security and syntax")
+        cot_workflow.add_step("Executor", "Executing query against database")
+        cot_workflow.add_step("Summarizer", "Generating natural language summary")
         
-        clarifications = resp.get("clarifications", [])
-        if clarifications:
-            st.markdown("**Please provide the following details:**")
-            for i, clarification in enumerate(clarifications, 1):
-                field_name = clarification.get("field", f"clarification_{i}")
-                prompt = clarification.get("prompt", f"Clarification {i+1}")
-                default_value = clarification.get("default", "")
-                st.markdown(f"**{i+1}. {prompt}**")
-                st.info(f"**Suggested answer:** {default_value}")
-                st.markdown("---")
+        # Initialize agents
+        db_path = os.getenv("DB_PATH", "banking.db")
+        db_manager = get_db_manager(db_path)
+        
+        # Get schema tables from database
+        schema_tables = {}
+        try:
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
             
-            # Store clarifications in session state for processing
-            st.session_state.pending_clarifications = clarifications
-            st.session_state.original_query = query
-            st.session_state.pipeline_response = resp
+            for table in tables:
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = [row[1] for row in cursor.fetchall()]
+                schema_tables[table] = columns
             
-            st.markdown("**💡 How to provide clarifications:**")
-            st.markdown("**Option 1:** Type your clarifications in the chat box below")
-            st.markdown("**Option 2:** Use the suggested answers above")
-            st.markdown("**Option 3:** Combine with your original query")
+            db_manager.release_connection(conn)
+        except Exception as e:
+            st.error(f"❌ Error getting schema: {e}")
+            schema_tables = {"customers": ["id", "name", "email"], "accounts": ["id", "customer_id", "type"]}
+        
+        # Initialize agents
+        planner = PlannerAgent()
+        retriever = RetrieverAgent()
+        generator = LLMSQLGenerator()
+        validator = ValidatorAgent()
+        executor = ExecutorAgent(db_path, db_manager)
+        summarizer = SummarizerAgent()
+        
+        # Configure pipeline
+        config = PipelineConfig(max_retries=2, sql_row_limit=100)
+        
+        # Create pipeline
+        pipeline = NL2SQLPipeline(
+            planner=planner,
+            retriever=retriever,
+            generator=generator,
+            validator=validator,
+            executor=executor,
+            summarizer=summarizer,
+            schema_tables=schema_tables,
+            config=config
+        )
+        
+        # Execute pipeline with real-time CoT updates
+        result = pipeline.run(query)
+        
+        # Update CoT steps based on actual execution
+        steps = cot_workflow.get_steps()
+        for i, step in enumerate(steps):
+            if result.get("success", False):
+                cot_workflow.update_step_status(i, "completed", f"Completed successfully")
+            else:
+                cot_workflow.update_step_status(i, "error", f"Failed: {result.get('error', 'Unknown error')}")
+        
+        if result.get("success", False):
+            sql = result.get("sql", "")
+            results = result.get("results", [])
+            summary = result.get("summary", "Query executed successfully")
             
-            st.markdown("**📝 Examples:**")
-            st.markdown("- `Q1: 2025-01-01 to 2025-03-31`")
-            st.markdown("- `date range: 2025-01-01..2025-03-31`")
-            st.markdown("- `Show me Q1 performance (Q1: 2025-01-01 to 2025-03-31)`")
+            # Extract timing information from diagnostics
+            diagnostics = result.get("diagnostics", {})
+            timings = diagnostics.get("timings_ms", {})
             
-            # Show agent flow if available
-            if resp.get("agent_flow"):
-                st.markdown("---")
-                st.subheader("🤖 **Agent Flow Analysis**")
-                st.markdown("*What the AI understood so far*")
-                
-                agent_flow = resp["agent_flow"]
-                for flow in agent_flow:
-                    with st.expander(f"📋 {flow['agent']}", expanded=False):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.markdown("**📥 Input:**")
-                            st.json(flow["input"])
-                        with col2:
-                            st.markdown("**📤 Output:**")
-                            st.json(flow["output"])
+            # Update timing tracker with real timings
+            for agent, timing_ms in timings.items():
+                timing_tracker.track_agent(agent, timing_ms / 1000.0)
             
-            # Skip further processing when clarifications are needed
-            st.stop()
-    
-    # Store in conversation history
-    st.session_state.conversation_history.append((query, resp))
-    
-    # Show summary prominently at the top
-    if resp.get("summary"): 
-        st.markdown("### 📊 **Analysis:**")
-        st.markdown(resp.get("summary"))
-        st.divider()
-    
-    # Show record count prominently
-    if resp.get("table"):
-        import pandas as pd
-        df = pd.DataFrame(resp["table"])
-        record_count = len(df)
-        st.markdown("### 📈 **Query Results:**")
-        st.success(f"✅ **Found {record_count:,} records**")
-        st.divider()
-    
-    # Show SQL in an expandable section (for technical users)
-    if resp.get("sql"): 
-        with st.expander("🔧 Generated SQL Query", expanded=False):
-            st.code(resp["sql"], language="sql")
-    
-    # Show table results
-    if resp.get("table"):
-        import pandas as pd
-        df = pd.DataFrame(resp["table"])
-        record_count = len(df)
-        st.subheader(f"📋 Results ({record_count:,} records)")
-        st.dataframe(df, use_container_width=True)
-    
-    # Show suggested follow-up questions
-    if resp.get("suggestions"):
-        st.divider()
-        st.subheader("💡 Suggested Follow-up Questions")
-        st.markdown("*Click any suggestion to ask it automatically:*")
+            return sql, results, summary, timing_tracker.get_summary()
+        else:
+            # Handle failure
+            error_msg = result.get("error", "Unknown error")
+            st.error(f"❌ Pipeline failed: {error_msg}")
+            
+            # Return fallback results
+            sql = "SELECT * FROM customers LIMIT 10"
+            results = [{"id": i, "name": f"Customer {i}", "email": f"customer{i}@example.com"} for i in range(1, 11)]
+            summary = f"Query failed: {error_msg}. Showing sample data instead."
+            
+            return sql, results, summary, timing_tracker.get_summary()
+            
+    except Exception as e:
+        st.error(f"❌ Error in workflow: {e}")
         
-        # Create columns for suggestions
-        cols = st.columns(2)
-        for i, suggestion in enumerate(resp["suggestions"]):
-            col = cols[i % 2]
-            if col.button(suggestion, key=f"suggestion_{i}"):
-                # This would ideally trigger the query, but Streamlit doesn't support this directly
-                st.info(f"💡 You can copy and paste this question: **{suggestion}**")
+        # Return fallback results
+        sql = "SELECT * FROM customers LIMIT 10"
+        results = [{"id": i, "name": f"Customer {i}", "email": f"customer{i}@example.com"} for i in range(1, 11)]
+        summary = f"Workflow error: {str(e)}. Showing sample data instead."
         
-        # Alternative: show as clickable text
-        st.markdown("**Or copy these questions:**")
-        for suggestion in resp["suggestions"]:
-            st.markdown(f"• `{suggestion}`")
+        return sql, results, summary, timing_tracker.get_summary()
+
+def render_developer_ui():
+    """Render UI for Developer role"""
+    st.markdown("### 👨‍💻 Developer View")
     
-    # Add a clear conversation button
-    if st.button("🗑️ Clear Conversation History"):
-        st.session_state.conversation_history = []
-        st.rerun()
+    # Tech Stack and Agent Flow tabs
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Query", "🛠️ Tech Stack", "🤖 Agent Flow", "📊 Results", "📄 Export"])
     
-    # Display Agent Flow Analysis
-    if resp.get("agent_flow"):
-        st.markdown("---")
-        st.subheader("🤖 **Agent Flow Analysis**")
-        st.markdown("*Detailed breakdown of each agent's input and output*")
+    with tab1:
+        st.markdown("#### 💬 Natural Language Query")
         
-        agent_flow = resp["agent_flow"]
+        # User inputs
+        col1, col2 = st.columns(2)
         
-        # Create tabs for each agent
-        agent_tabs = st.tabs([f"📋 {flow['agent']}" for flow in agent_flow])
+        with col1:
+            user_input = st.text_input("👤 Your Name:", value="Developer", key="user_input")
         
-        for i, (flow, tab) in enumerate(zip(agent_flow, agent_tabs)):
-            with tab:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**📥 Input:**")
-                    st.json(flow["input"])
-                
-                with col2:
-                    st.markdown("**📤 Output:**")
-                    st.json(flow["output"])
-                
-                # Show timing information
-                st.markdown(f"**⏱️ Processing Time:** {flow['timing_ms']}ms")
-                
-                # Add specific insights for each agent
-                if flow["agent"] == "PLANNER":
-                    if flow["output"].get("tables"):
-                        st.success(f"✅ Identified {len(flow['output']['tables'])} relevant tables")
-                    if flow["output"].get("clarifications"):
-                        st.warning(f"⚠️ {len(flow['output']['clarifications'])} clarifications needed")
-                
-                elif flow["agent"] == "RETRIEVER":
-                    context_count = flow["output"].get("schema_context_count", 0)
-                    st.info(f"🔍 Retrieved {context_count} schema context items")
-                    
-                    # Show ChromaDB and Ollama interactions
-                    if flow["output"].get("chromadb_interactions"):
-                        with st.expander("🗄️ ChromaDB Interactions", expanded=False):
-                            chroma_data = flow["output"]["chromadb_interactions"]
-                            
-                            # Collection info
-                            if chroma_data.get("collection_info"):
-                                col_info = chroma_data["collection_info"]
-                                if "error" not in col_info:
-                                    st.success(f"📊 Collection: {col_info.get('collection_name', 'Unknown')}")
-                                    st.info(f"📈 Total Documents: {col_info.get('total_documents', 0)}")
-                                else:
-                                    st.error(f"❌ Collection Error: {col_info['error']}")
-                            
-                            # Query execution
-                            if chroma_data.get("query_execution"):
-                                query_exec = chroma_data["query_execution"]
-                                st.info(f"⚡ Query Time: {query_exec.get('query_time_ms', 0)}ms")
-                                st.info(f"📊 Results: {query_exec.get('actual_results', 0)}/{query_exec.get('requested_results', 0)}")
-                            
-                            # Vector search details
-                            if chroma_data.get("vector_search"):
-                                vector_data = chroma_data["vector_search"]
-                                if vector_data.get("similarity_scores"):
-                                    st.info(f"🎯 Best Match: {vector_data.get('best_match_score', 0):.3f}")
-                                    st.info(f"📊 Average Similarity: {vector_data.get('average_similarity', 0):.3f}")
-                                    st.info(f"📈 Similarity Scores: {vector_data.get('similarity_scores', [])}")
-                    
-                    # Show Ollama interactions
-                    if flow["output"].get("ollama_interactions"):
-                        with st.expander("🧠 Ollama Interactions", expanded=False):
-                            ollama_data = flow["output"]["ollama_interactions"]
-                            
-                            st.info(f"🤖 Model: {ollama_data.get('model_used', 'Unknown')}")
-                            st.info(f"🌐 Server: {ollama_data.get('ollama_url', 'Unknown')}")
-                            
-                            if ollama_data.get("embedding_generation"):
-                                embed_data = ollama_data["embedding_generation"]
-                                if embed_data.get("success"):
-                                    st.success(f"✅ Embedding Generated")
-                                    st.info(f"📏 Dimensions: {embed_data.get('embedding_dimensions', 0)}")
-                                    st.info(f"⏱️ Generation Time: {embed_data.get('generation_time_ms', 0)}ms")
-                                    st.info(f"📝 Query: {embed_data.get('query_text', 'Unknown')}")
-                                else:
-                                    st.error("❌ Embedding Generation Failed")
-                
-                elif flow["agent"] == "SQL_GENERATOR":
-                    sql = flow["output"].get("generated_sql", "")
-                    if "LIMIT 10" in sql and "SELECT * FROM" in sql:
-                        st.warning("⚠️ Used fallback SQL generation")
-                    else:
-                        st.success("✅ Generated custom SQL query")
-                
-                elif flow["agent"] == "VALIDATOR":
-                    if flow["output"].get("validation_passed"):
-                        st.success("✅ SQL validation passed")
-                    else:
-                        st.error(f"❌ Validation failed: {flow['output'].get('reason', 'Unknown')}")
-                
-                elif flow["agent"] == "EXECUTOR":
-                    if flow["output"].get("success"):
-                        st.success(f"✅ Executed successfully: {flow['output'].get('results_count', 0)} results")
-                    else:
-                        st.error(f"❌ Execution failed: {flow['output'].get('error', 'Unknown')}")
-                
-                elif flow["agent"] == "SUMMARIZER":
-                    summary_length = flow["output"].get("summary_length", 0)
-                    st.info(f"📝 Generated {summary_length} character summary")
+        with col2:
+            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
+        
+        # Query input
+        query_input = st.text_area(
+            "🔍 Enter your question:",
+            placeholder="e.g., Find all customers who have both checking and savings accounts",
+            height=100,
+            key="query_input"
+        )
+        
+        # Process button
+        if st.button("🚀 Process Query", type="primary", use_container_width=True):
+            if query_input.strip():
+                process_query(query_input, user_input, role_input)
+            else:
+                st.warning("Please enter a query")
+    
+    with tab2:
+        st.markdown("#### 🛠️ Technology Stack")
+        render_tech_stack_with_tests()
+        
+        # System Status
+        if 'init_report' in st.session_state:
+            st.markdown("#### 🚀 System Status")
+            render_initialization_status(st.session_state.init_report)
+    
+    with tab3:
+        st.markdown("#### 🤖 Agent-to-Agent Flow")
+        
+        if 'last_timing_summary' in st.session_state:
+            # Agent timings
+            st.markdown("##### ⏱️ Agent Performance")
+            render_detailed_timing_dashboard(st.session_state.last_timing_summary)
+            
+            # Agent flow details
+            if 'last_cot_workflow' in st.session_state:
+                st.markdown("##### 🧠 Chain-of-Thought Steps")
+                render_cot_workflow(st.session_state.last_cot_workflow)
+        else:
+            st.info("No agent flow data available. Please run a query first.")
+    
+    with tab4:
+        st.markdown("#### 📊 Query Results")
+        
+        if 'last_results' in st.session_state:
+            # Results count
+            results_count = len(st.session_state.last_results)
+            st.metric("Results", f"{results_count} records")
+            
+            # Pagination
+            if results_count > 10:
+                pagination_manager = PaginationManager(st.session_state.last_results)
+                render_paginated_results(st.session_state.last_results, pagination_manager)
+            else:
+                st.dataframe(st.session_state.last_results, use_container_width=True)
+        else:
+            st.info("No results available. Please run a query first.")
+    
+    with tab5:
+        st.markdown("#### 📄 Export Report")
+        
+        if 'last_results' in st.session_state:
+            if st.button("📊 Export to PDF", type="secondary"):
+                export_pdf_report(st.session_state)
+        else:
+            st.info("No data available for export. Please run a query first.")
+
+def render_business_user_ui():
+    """Render UI for Business User role"""
+    st.markdown("### 👔 Business User View")
+    
+    # Application Health and Results tabs
+    tab1, tab2, tab3 = st.tabs(["💬 Query", "📊 Results", "💬 Feedback"])
+    
+    with tab1:
+        st.markdown("#### 💬 Natural Language Query")
+        
+        # User inputs
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            user_input = st.text_input("👤 Your Name:", value="Business User", key="user_input")
+        
+        with col2:
+            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
+        
+        # Query input
+        query_input = st.text_area(
+            "🔍 Enter your question:",
+            placeholder="e.g., Find all customers who have both checking and savings accounts",
+            height=100,
+            key="query_input"
+        )
+        
+        # Process button
+        if st.button("🚀 Process Query", type="primary", use_container_width=True):
+            if query_input.strip():
+                process_query(query_input, user_input, role_input)
+            else:
+                st.warning("Please enter a query")
+    
+    with tab2:
+        st.markdown("#### 📊 Query Results")
+        
+        if 'last_results' in st.session_state:
+            # Results count
+            results_count = len(st.session_state.last_results)
+            st.metric("Results", f"{results_count} records")
+            
+            # Results table
+            st.dataframe(st.session_state.last_results, use_container_width=True)
+            
+            # Summary
+            if 'last_summary' in st.session_state:
+                st.markdown("#### 📝 Summary")
+                st.write(st.session_state.last_summary)
+        else:
+            st.info("No results available. Please run a query first.")
+    
+    with tab3:
+        st.markdown("#### 💬 Business User Feedback")
+        
+        # Application Health Status
+        st.markdown("##### 🏥 Application Health")
+        if 'init_report' in st.session_state:
+            render_initialization_status(st.session_state.init_report)
+        else:
+            st.info("System status not available")
+        
+        # Feedback Box
+        st.markdown("##### 📝 Your Feedback")
+        feedback = st.text_area(
+            "Please provide your feedback about the application:",
+            placeholder="Share your thoughts about the query results, user experience, or any suggestions for improvement...",
+            height=200,
+            max_chars=1000,
+            key="business_feedback"
+        )
+        
+        if st.button("📤 Submit Feedback", type="secondary"):
+            if feedback.strip():
+                st.success("✅ Thank you for your feedback!")
+                # Here you could save the feedback to a file or database
+            else:
+                st.warning("Please enter your feedback")
+
+def render_analyst_ui():
+    """Render UI for Analyst role (default view)"""
+    st.markdown("### 📊 Analyst View")
+    
+    # Standard tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["💬 Query", "📊 Results", "📈 Analysis", "📄 Export"])
+    
+    with tab1:
+        st.markdown("#### 💬 Natural Language Query")
+        
+        # User inputs
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            user_input = st.text_input("👤 Your Name:", value="Analyst", key="user_input")
+        
+        with col2:
+            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
+        
+        # Query input
+        query_input = st.text_area(
+            "🔍 Enter your question:",
+            placeholder="e.g., Find all customers who have both checking and savings accounts",
+            height=100,
+            key="query_input"
+        )
+        
+        # Process button
+        if st.button("🚀 Process Query", type="primary", use_container_width=True):
+            if query_input.strip():
+                process_query(query_input, user_input, role_input)
+            else:
+                st.warning("Please enter a query")
+    
+    with tab2:
+        st.markdown("#### 📊 Query Results")
+        
+        if 'last_results' in st.session_state:
+            # Results count
+            results_count = len(st.session_state.last_results)
+            st.metric("Results", f"{results_count} records")
+            
+            # Pagination
+            if results_count > 10:
+                pagination_manager = PaginationManager(st.session_state.last_results)
+                render_paginated_results(st.session_state.last_results, pagination_manager)
+            else:
+                st.dataframe(st.session_state.last_results, use_container_width=True)
+        else:
+            st.info("No results available. Please run a query first.")
+    
+    with tab3:
+        st.markdown("#### 📈 Analysis & Insights")
+        
+        if 'last_summary' in st.session_state:
+            # Summary
+            st.markdown("##### 📝 Summary")
+            st.write(st.session_state.last_summary)
+            
+            # Security validation
+            if 'last_guards' in st.session_state:
+                render_security_validation_section(st.session_state.last_guards)
+            
+            # Timing dashboard
+            if 'last_timing_summary' in st.session_state:
+                render_detailed_timing_dashboard(st.session_state.last_timing_summary)
+            
+            # Chain-of-Thought workflow
+            if 'last_cot_workflow' in st.session_state:
+                render_cot_workflow(st.session_state.last_cot_workflow)
+        else:
+            st.info("No analysis available. Please run a query first.")
+    
+    with tab4:
+        st.markdown("#### 📄 Export Report")
+        
+        if 'last_results' in st.session_state:
+            # PDF Export section
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("📊 Export to PDF", type="secondary"):
+                    export_pdf_report(st.session_state)
+
+            with col2:
+                st.markdown("**Export includes:**")
+                st.markdown("- 📋 Query details and generated SQL")
+                st.markdown("- 🧠 Chain-of-Thought analysis")
+                st.markdown("- 📊 Results and insights")
+                st.markdown("- 🛡️ Security validation")
+                st.markdown("- ⏱️ Performance metrics")
+        else:
+            st.info("No data available for export. Please run a query first.")
+def process_query(query: str, user_input: str, role_input: str):
+    """Process a natural language query"""
+    # Initialize components if not already done
+    if 'system_initialized' not in st.session_state:
+        with st.spinner("🚀 Initializing system..."):
+            init_report = run_system_initialization()
+            st.session_state.system_initialized = True
+            st.session_state.init_report = init_report
+    
+    # Initialize timing tracker and CoT workflow
+    timing_tracker = TimingTracker()
+    cot_workflow = CoTWorkflow()
+    
+    # Process query
+    with st.spinner("🔄 Processing.... please wait"):
+        sql, results, summary, timing_summary = simulate_agent_workflow_with_cot(query, timing_tracker, cot_workflow)
+    
+    # Apply security guards
+    security_guard = SecurityGuard()
+    guard_result = security_guard.apply_guards(sql)
+    
+    # Store results in session state
+    st.session_state.last_results = results
+    st.session_state.last_guards = guard_result
+    st.session_state.last_query_time = timing_summary.get('total_time', 0)
+    st.session_state.last_sql = guard_result.get('sql', sql)
+    st.session_state.last_timing_summary = timing_summary
+    st.session_state.last_summary = summary
+    st.session_state.last_cot_workflow = cot_workflow
+    
+    # Add to query history
+    if 'query_history' in st.session_state:
+        query_history = st.session_state.query_history
+    else:
+        query_history = QueryHistory()
+        st.session_state.query_history = query_history
+    
+    query_history.add_query(
+        query=query,
+        sql=guard_result.get('sql', sql),
+        results_count=len(results),
+        timestamp=datetime.now().strftime("%H:%M:%S")
+    )
+    
+    # Trigger UI update
+    st.rerun()
+
+def main():
+    """Main application function"""
+    # Header with GIF and title
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        st.write("")  # Empty space for centering
+    
+    with col2:
+        # Display the GIF
+        st.image("docs/animated_stagecoach_right_legmotion.gif", width=200)
+        
+        # Title with styling
+        st.markdown("""
+        <div style="text-align: center; margin-top: 10px;">
+            <h1 style="color: #FF6B35; font-size: 2.5em; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+                Wells Aug HackAThon NL 2 SQL DataInsight
+            </h1>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.write("")  # Empty space for centering
+    
+    st.markdown("**Natural Language to SQL with Retrieval-Augmented Generation**")
+    
+    # Initialize components
+    if 'security_guard' not in st.session_state:
+        st.session_state.security_guard = SecurityGuard()
+    if 'query_history' not in st.session_state:
+        st.session_state.query_history = QueryHistory()
+    if 'timing_tracker' not in st.session_state:
+        st.session_state.timing_tracker = TimingTracker()
+    
+    # Sidebar
+    with st.sidebar:
+        st.markdown("### 📋 Navigation")
+        
+        # Recent queries
+        render_recent_queries_sidebar()
+        
+        # Role selector
+        st.markdown("### 🎭 Role Selection")
+        selected_role = st.selectbox(
+            "Choose your role:",
+            ["Analyst", "Developer", "Business User"],
+            key="role_selector"
+        )
+        
+        # Show role-specific info
+        if selected_role == "Developer":
+            st.info("👨‍💻 **Developer View**: Tech Stack, Agent Flow, Detailed Analysis")
+        elif selected_role == "Business User":
+            st.info("👔 **Business View**: Simple Results, Health Status, Feedback")
+        else:
+            st.info("📊 **Analyst View**: Standard Analysis & Export")
+        
+        # Show tech stack only for Developer role
+        if selected_role == "Developer":
+            st.markdown("### 🛠️ Quick Tech Stack")
+            render_tech_stack_about()
+    
+    # Render role-based UI
+    if selected_role == "Developer":
+        render_developer_ui()
+    elif selected_role == "Business User":
+        render_business_user_ui()
+    else:
+        render_analyst_ui()
+
+if __name__ == "__main__":
+    main()

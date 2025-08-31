@@ -16,8 +16,8 @@ class DatabaseInitializer:
         self.db_path = ":memory:"  # In-memory database
         self.conn = None
         self.cursor = None
-        self.schema_file = "../code/src/data/banking_schema_sqlite.sql"
-        self.data_file = "../code/src/data/banking_data.sql"
+        self.schema_file = "db/schema.sql"
+        self.data_file = "db/sample_data.sql"
         self.table_stats = {}
         self.schema_info = {}
         self.column_values = {}

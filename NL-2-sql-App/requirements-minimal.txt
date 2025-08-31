@@ -1,0 +1,28 @@
+# Minimal Requirements for SQL RAG Agent
+# Core dependencies only - for quick setup
+
+# Web Framework
+streamlit>=1.28.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Vector Database
+chromadb>=0.4.0
+
+# LLM Provider (OpenAI)
+openai>=1.0.0
+
+# SQL Processing
+sqlparse>=0.4.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# PDF Generation
+reportlab>=4.0.0
+
+# Utilities
+requests>=2.31.0
+pydantic>=2.0.0

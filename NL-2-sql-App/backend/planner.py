@@ -1,184 +1,192 @@
-# backend/planner.py
-from typing import Dict, List, Any, Optional
+#!/usr/bin/env python3
+"""
+Planner Agent for SQL RAG Agent
+Analyzes natural language queries and determines required components
+"""
+
 import re
-from datetime import datetime
+from typing import Dict, Any, List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PlannerAgent:
-    """
-    PlannerAgent analyzes a natural-language query and returns:
-      - tables: list of likely relevant tables
-      - steps: ordered actions for pipeline
-      - capabilities: short tags (exists, group_by, date_filter, window, etc.)
-      - clarifications: if any ambiguity detected (thresholds, date ranges)
-      - conversation_state: optional lightweight context to carry across turns
-    """
-    DATE_WORDS = ["q1", "q2", "q3", "q4", "quarter", "year", "month", "week", "today", "yesterday", "last", "first quarter", "2024", "2025"]
-    AGG_WORDS = ["average", "avg", "sum", "count", "total", "number of", "how many"]
-    EXISTS_WORDS = ["both", "either", "and", "have both", "have both a", "have both an"]
-    WINDOW_WORDS = ["consecutive", "consecutive days", "lag", "lead"]
-    WEEKEND_WORDS = ["weekend", "saturday", "sunday"]
-    THRESHOLD_WORDS = ["greater than", "less than", "above", "below", "minimum", "max", "at least", "more than"]
-
-    def __init__(self, schema_map: Dict[str, List[str]], conversation_state: Optional[Dict[str, Any]] = None):
-        """
-        schema_map: {"customers": ["id","first_name",...], "accounts": [...], ...}
-        conversation_state: optional prior context (last_tables, last_filters)
-        """
-        self.schema_map = schema_map
-        self.conversation_state = conversation_state or {}
-
-    def _detect_tables(self, text: str) -> List[str]:
-        found = []
-        tl = text.lower()
-        for table in self.schema_map.keys():
-            if table.lower() in tl:
-                found.append(table)
-        # heuristics: mention of "customer", "account", "transaction", "branch", "employee"
-        if not found:
-            if "customer" in tl: found.extend([t for t in self.schema_map if "customer" in t])
-            if "account" in tl: found.extend([t for t in self.schema_map if "account" in t])
-            if "transaction" in tl or "transactions" in tl: found.extend([t for t in self.schema_map if "transaction" in t])
-            if "employee" in tl or "employees" in tl: found.extend([t for t in self.schema_map if "employee" in t])
-            if "branch" in tl or "branches" in tl: found.extend([t for t in self.schema_map if "branch" in t])
-        # unique preserving order
-        return list(dict.fromkeys(found)) or list(self.schema_map.keys())
-
-    def _detect_capabilities(self, text: str) -> List[str]:
-        caps = set()
-        tl = text.lower()
-        if any(w in tl for w in self.AGG_WORDS): caps.add("aggregate")
-        if any(w in tl for w in self.EXISTS_WORDS): caps.add("exists")
-        if any(w in tl for w in self.WINDOW_WORDS): caps.add("window")
-        if any(w in tl for w in self.WEEKEND_WORDS): caps.add("weekend")
-        if any(w in tl for w in self.DATE_WORDS): caps.add("date_filter")
-        if any(w in tl for w in self.THRESHOLD_WORDS): caps.add("threshold")
-        # detect join hint
-        if "manager" in tl or "handled by" in tl or "handled" in tl: caps.add("join_employees")
-        return sorted(list(caps))
-
-    def _detect_clarifications(self, text: str) -> List[Dict[str, Any]]:
-        tl = text.lower()
-        clar = []
-        # threshold numeric missing
-        if any(k in tl for k in ["high value", "high balance", "rich", "wealthy"]) and not re.search(r"\b\d{2,}\b", text):
-            clar.append({"field": "min_balance", "prompt": "What minimum balance should count as 'high'?", "type": "number", "default": 20000})
-        # ambiguous timeframe
-        if "recent" in tl or "last" in tl and not re.search(r"\b(20\d{2}|202\d)\b", text):
-            clar.append({"field": "date_range", "prompt": "What date range do you mean by 'recent'?", "type": "text", "default": "last 30 days"})
-        # explicit q1 text -> convert to date_range default
-        if "q1" in tl or "first quarter" in tl:
-            clar.append({"field":"date_range","prompt":"Confirm date range for Q1", "type":"text","default":"2025-01-01..2025-03-31"})
-        return clar
-
-    def analyze_query(self, nl_query: str) -> Dict[str, Any]:
-        """
-        Main entrypoint. Returns structured plan dict.
-        """
-        print(f"📋 PLANNER AGENT: Starting query analysis")
-        print(f"📝 Input query: {nl_query}")
+    """Planner agent that analyzes queries and determines requirements"""
+    
+    def __init__(self, schema_tables: Dict[str, Any]):
+        self.schema_tables = schema_tables
+        self.table_names = list(schema_tables.keys())
         
-        if not nl_query or not nl_query.strip():
-            print(f"⚠️ PLANNER AGENT: Empty query detected - returning default plan")
-            return {"tables": list(self.schema_map.keys()), "steps": [{"action":"fetch_schema","tables": list(self.schema_map.keys())}], "capabilities": [], "clarifications": []}
-
-        print(f"🔍 PLANNER AGENT: Detecting relevant tables...")
-        tables = self._detect_tables(nl_query)
-        print(f"📊 PLANNER AGENT: Detected tables: {tables}")
+    def analyze_query(self, query: str) -> Dict[str, Any]:
+        """Analyze natural language query and determine requirements"""
+        logger.info(f"📋 Planner: Analyzing query: {query}")
         
-        print(f"🔧 PLANNER AGENT: Detecting capabilities...")
-        capabilities = self._detect_capabilities(nl_query)
-        print(f"⚡ PLANNER AGENT: Detected capabilities: {capabilities}")
-        
-        print(f"❓ PLANNER AGENT: Checking for clarifications needed...")
-        clarifications = self._detect_clarifications(nl_query)
-        if clarifications:
-            print(f"⚠️ PLANNER AGENT: Clarifications needed: {clarifications}")
-        else:
-            print(f"✅ PLANNER AGENT: No clarifications needed")
-        
-        # Generate intelligent follow-up suggestions
-        print(f"💡 PLANNER AGENT: Generating follow-up suggestions...")
-        follow_up_suggestions = self._generate_follow_up_suggestions(nl_query, tables, capabilities)
-        print(f"💡 PLANNER AGENT: Generated {len(follow_up_suggestions)} suggestions")
-
-        steps = [
-            {"action":"fetch_schema","tables": tables},
-            {"action":"retrieve_examples","tables": tables},
-            {"action":"generate_sql"},
-            {"action":"validate_sql"},
-            {"action":"execute_sql"}
-        ]
-
-        plan = {
-            "query": nl_query,
-            "tables": tables,
-            "steps": steps,
-            "capabilities": capabilities,
-            "clarifications": clarifications,
-            "follow_up_suggestions": follow_up_suggestions,
-            "conversation_state": self.conversation_state
+        # Extract entities and requirements
+        analysis = {
+            "query": query,
+            "entities": self._extract_entities(query),
+            "tables_needed": self._identify_tables(query),
+            "operations": self._identify_operations(query),
+            "complexity": self._assess_complexity(query),
+            "clarifications": self._check_clarifications(query),
+            "estimated_tokens": self._estimate_tokens(query)
         }
         
-        print(f"✅ PLANNER AGENT: Analysis complete - returning plan")
-        print(f"📋 PLANNER AGENT: Plan summary - Tables: {len(tables)}, Capabilities: {len(capabilities)}, Steps: {len(steps)}")
-        return plan
-
-    def _generate_follow_up_suggestions(self, query: str, tables: List[str], capabilities: List[str]) -> List[str]:
-        """Generate intelligent follow-up questions based on the current query"""
+        logger.info(f"📋 Planner: Analysis complete - {analysis}")
+        return analysis
+    
+    def _extract_entities(self, query: str) -> List[str]:
+        """Extract entities mentioned in the query"""
+        entities = []
         query_lower = query.lower()
-        suggestions = []
         
-        # Branch-related suggestions
-        if "branch" in query_lower or "branches" in query_lower:
-            if "transaction" in query_lower:
-                suggestions.extend([
-                    "Show me the bottom 5 performing branches",
-                    "What's the average transaction amount by branch?",
-                    "Show me branch performance by month",
-                    "Compare branch performance by employee count"
-                ])
-            else:
-                suggestions.extend([
-                    "Show me the top 10 branches by transaction volume",
-                    "Which branches have the most employees?",
-                    "Show me branch performance by revenue",
-                    "What's the average account balance by branch?"
-                ])
+        # Common banking entities
+        banking_entities = [
+            "customer", "customers", "account", "accounts", "transaction", "transactions",
+            "branch", "branches", "employee", "employees", "manager", "managers",
+            "salary", "salaries", "balance", "balances", "amount", "amounts"
+        ]
         
-        # Account-related suggestions
-        if "account" in query_lower or "balance" in query_lower:
-            suggestions.extend([
-                "Show me the top 10 accounts by balance",
-                "What's the average account balance?",
-                "Show me account distribution by type",
-                "Which customers have multiple accounts?"
-            ])
+        for entity in banking_entities:
+            if entity in query_lower:
+                entities.append(entity)
         
-        # Employee-related suggestions
-        if "employee" in query_lower or "salary" in query_lower:
-            suggestions.extend([
-                "Show me the top 10 highest paid employees",
-                "What's the average employee salary?",
-                "Show me salary distribution by position",
-                "Which branches have the highest paid employees?"
-            ])
+        return entities
+    
+    def _identify_tables(self, query: str) -> List[str]:
+        """Identify which tables are needed for the query"""
+        tables_needed = []
+        query_lower = query.lower()
         
-        # Transaction-related suggestions
-        if "transaction" in query_lower:
-            suggestions.extend([
-                "Show me transaction trends by month",
-                "What's the average transaction amount?",
-                "Show me transactions by type",
-                "Which accounts have the most transactions?"
-            ])
+        # Map entities to tables
+        entity_table_mapping = {
+            "customer": "customers",
+            "customers": "customers",
+            "account": "accounts",
+            "accounts": "accounts",
+            "transaction": "transactions",
+            "transactions": "transactions",
+            "branch": "branches",
+            "branches": "branches",
+            "employee": "employees",
+            "employees": "employees",
+            "manager": "employees",
+            "managers": "employees"
+        }
         
-        # General database exploration suggestions
-        if not suggestions:
-            suggestions.extend([
-                "Show me the count of rows by each table",
-                "What's the top performing branch?",
-                "Show me the highest balance account",
-                "Which employee has the highest salary?"
-            ])
+        for entity, table in entity_table_mapping.items():
+            if entity in query_lower and table in self.table_names:
+                if table not in tables_needed:
+                    tables_needed.append(table)
         
-        return suggestions[:4]  # Limit to 4 suggestions
+        return tables_needed
+    
+    def _identify_operations(self, query: str) -> List[str]:
+        """Identify operations needed for the query"""
+        operations = []
+        query_lower = query.lower()
+        
+        # Common operations
+        if any(word in query_lower for word in ["count", "number", "how many"]):
+            operations.append("COUNT")
+        
+        if any(word in query_lower for word in ["sum", "total", "sum of"]):
+            operations.append("SUM")
+        
+        if any(word in query_lower for word in ["average", "avg", "mean"]):
+            operations.append("AVG")
+        
+        if any(word in query_lower for word in ["maximum", "max", "highest"]):
+            operations.append("MAX")
+        
+        if any(word in query_lower for word in ["minimum", "min", "lowest"]):
+            operations.append("MIN")
+        
+        if any(word in query_lower for word in ["group", "grouped", "by"]):
+            operations.append("GROUP BY")
+        
+        if any(word in query_lower for word in ["where", "filter", "condition"]):
+            operations.append("WHERE")
+        
+        if any(word in query_lower for word in ["join", "joined", "with"]):
+            operations.append("JOIN")
+        
+        return operations
+    
+    def _assess_complexity(self, query: str) -> str:
+        """Assess query complexity"""
+        complexity_score = 0
+        
+        # Factors that increase complexity
+        if len(query.split()) > 20:
+            complexity_score += 2
+        
+        if len(self._identify_tables(query)) > 2:
+            complexity_score += 2
+        
+        if len(self._identify_operations(query)) > 3:
+            complexity_score += 2
+        
+        if any(word in query.lower() for word in ["join", "joined", "with"]):
+            complexity_score += 1
+        
+        if any(word in query.lower() for word in ["group", "grouped", "by"]):
+            complexity_score += 1
+        
+        if any(word in query.lower() for word in ["having", "subquery", "nested"]):
+            complexity_score += 2
+        
+        # Determine complexity level
+        if complexity_score <= 2:
+            return "simple"
+        elif complexity_score <= 4:
+            return "medium"
+        else:
+            return "complex"
+    
+    def _check_clarifications(self, query: str) -> List[Dict[str, Any]]:
+        """Check if query needs clarifications"""
+        clarifications = []
+        query_lower = query.lower()
+        
+        # Check for ambiguous terms
+        if "recent" in query_lower and not re.search(r'\d+', query):
+            clarifications.append({
+                "type": "time_range",
+                "field": "recent",
+                "question": "How recent? (e.g., last 30 days, last month, last year)",
+                "suggestions": ["last 30 days", "last month", "last quarter", "last year"]
+            })
+        
+        if "high" in query_lower and "salary" in query_lower:
+            clarifications.append({
+                "type": "threshold",
+                "field": "salary_threshold",
+                "question": "What do you consider a 'high' salary?",
+                "suggestions": ["above average", "top 10%", "above $100,000", "above $75,000"]
+            })
+        
+        if "large" in query_lower and "balance" in query_lower:
+            clarifications.append({
+                "type": "threshold",
+                "field": "balance_threshold",
+                "question": "What do you consider a 'large' balance?",
+                "suggestions": ["above average", "top 20%", "above $50,000", "above $25,000"]
+            })
+        
+        return clarifications
+    
+    def _estimate_tokens(self, query: str) -> int:
+        """Estimate token usage for the query"""
+        # Rough estimation based on query length and complexity
+        base_tokens = len(query.split()) * 2  # Rough estimate
+        
+        complexity = self._assess_complexity(query)
+        if complexity == "simple":
+            multiplier = 1.0
+        elif complexity == "medium":
+            multiplier = 1.5
+        else:
+            multiplier = 2.0
+        
+        return int(base_tokens * multiplier)
