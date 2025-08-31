@@ -1,9 +1,0 @@
-#!/bin/sh
-'''exec' "/Users/apple/Documents/DevTechAI/gitRepoDevTechAI/DevTechAIDocsRepo/Wells-AI-Hackthon Docs/GitRepo_Wells_HackAThon/hackathon1-devtexhai-main/Wells-HackAThon_Aug28/NL-2-sql-App/.venv/bin/python" "$0" "$@"
-' '''
-import sys
-from build.__main__ import entrypoint
-if __name__ == '__main__':
-    if sys.argv[0].endswith('.exe'):
-        sys.argv[0] = sys.argv[0][:-4]
-    sys.exit(entrypoint())

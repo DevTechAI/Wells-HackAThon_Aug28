@@ -48,4 +48,17 @@ class ValidatorAgent:
 
     def is_safe(self, sql: str, schema_tables: dict) -> tuple[bool, str]:
         """Wrapper method to match pipeline expectations"""
-        return self.is_safe_sql(sql)
+        print(f"🔍 VALIDATOR AGENT: Starting SQL validation")
+        print(f"🔧 VALIDATOR AGENT: Validating SQL: {sql}")
+        print(f"📋 VALIDATOR AGENT: Available tables: {list(schema_tables.keys())}")
+        
+        result = self.is_safe_sql(sql)
+        
+        if result[0]:
+            print(f"✅ VALIDATOR AGENT: SQL validation passed")
+            print(f"🔍 VALIDATOR AGENT: Reason: {result[1]}")
+        else:
+            print(f"❌ VALIDATOR AGENT: SQL validation failed")
+            print(f"⚠️ VALIDATOR AGENT: Reason: {result[1]}")
+        
+        return result

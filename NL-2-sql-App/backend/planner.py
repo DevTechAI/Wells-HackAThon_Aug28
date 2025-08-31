@@ -74,15 +74,32 @@ class PlannerAgent:
         """
         Main entrypoint. Returns structured plan dict.
         """
+        print(f"📋 PLANNER AGENT: Starting query analysis")
+        print(f"📝 Input query: {nl_query}")
+        
         if not nl_query or not nl_query.strip():
+            print(f"⚠️ PLANNER AGENT: Empty query detected - returning default plan")
             return {"tables": list(self.schema_map.keys()), "steps": [{"action":"fetch_schema","tables": list(self.schema_map.keys())}], "capabilities": [], "clarifications": []}
 
+        print(f"🔍 PLANNER AGENT: Detecting relevant tables...")
         tables = self._detect_tables(nl_query)
+        print(f"📊 PLANNER AGENT: Detected tables: {tables}")
+        
+        print(f"🔧 PLANNER AGENT: Detecting capabilities...")
         capabilities = self._detect_capabilities(nl_query)
+        print(f"⚡ PLANNER AGENT: Detected capabilities: {capabilities}")
+        
+        print(f"❓ PLANNER AGENT: Checking for clarifications needed...")
         clarifications = self._detect_clarifications(nl_query)
+        if clarifications:
+            print(f"⚠️ PLANNER AGENT: Clarifications needed: {clarifications}")
+        else:
+            print(f"✅ PLANNER AGENT: No clarifications needed")
         
         # Generate intelligent follow-up suggestions
+        print(f"💡 PLANNER AGENT: Generating follow-up suggestions...")
         follow_up_suggestions = self._generate_follow_up_suggestions(nl_query, tables, capabilities)
+        print(f"💡 PLANNER AGENT: Generated {len(follow_up_suggestions)} suggestions")
 
         steps = [
             {"action":"fetch_schema","tables": tables},
@@ -101,6 +118,9 @@ class PlannerAgent:
             "follow_up_suggestions": follow_up_suggestions,
             "conversation_state": self.conversation_state
         }
+        
+        print(f"✅ PLANNER AGENT: Analysis complete - returning plan")
+        print(f"📋 PLANNER AGENT: Plan summary - Tables: {len(tables)}, Capabilities: {len(capabilities)}, Steps: {len(steps)}")
         return plan
 
     def _generate_follow_up_suggestions(self, query: str, tables: List[str], capabilities: List[str]) -> List[str]:
