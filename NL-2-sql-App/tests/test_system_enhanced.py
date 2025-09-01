@@ -122,31 +122,204 @@ def test_backend_tests():
         print(f"❌ Backend tests failed: {str(e)}")
         return False
 
+def test_security_guard():
+    """Test SecurityGuard functionality specifically"""
+    print("🧪 Testing SecurityGuard Functionality...")
+    
+    try:
+        from backend.security_guard import SecurityGuard
+        from backend.validator import ValidatorAgent
+        
+        results = []
+        
+        # Initialize SecurityGuard
+        start_time = time.time()
+        security_guard = SecurityGuard()
+        duration = time.time() - start_time
+        results.append({
+            'name': 'SecurityGuard: Initialization',
+            'status': 'passed',
+            'duration': duration,
+            'details': 'SecurityGuard initialized successfully'
+        })
+        
+        # Test safe SQL
+        start_time = time.time()
+        safe_sql = "SELECT * FROM customers LIMIT 10"
+        is_safe, message, action = security_guard.validate_sql(safe_sql, user="test_user", ip_address="127.0.0.1")
+        duration = time.time() - start_time
+        results.append({
+            'name': 'SecurityGuard: Safe SQL',
+            'status': 'passed' if is_safe else 'failed',
+            'duration': duration,
+            'details': f"Safe SQL validation: {message}"
+        })
+        
+        # Test dangerous SQL
+        start_time = time.time()
+        dangerous_sql = "DROP TABLE customers"
+        is_safe, message, action = security_guard.validate_sql(dangerous_sql, user="test_user", ip_address="127.0.0.1")
+        duration = time.time() - start_time
+        results.append({
+            'name': 'SecurityGuard: Dangerous SQL',
+            'status': 'passed' if not is_safe else 'failed',
+            'duration': duration,
+            'details': f"Dangerous SQL blocked: {message}"
+        })
+        
+        # Test Validator integration
+        start_time = time.time()
+        schema_tables = {"customers": ["id", "name", "email"]}
+        validator = ValidatorAgent(schema_tables, security_guard)
+        is_safe, message, details = validator.is_safe_sql(safe_sql, user="test_user", ip_address="127.0.0.1")
+        duration = time.time() - start_time
+        results.append({
+            'name': 'SecurityGuard: Validator Integration',
+            'status': 'passed' if is_safe else 'failed',
+            'duration': duration,
+            'details': f"Validator integration: {message}"
+        })
+        
+        print_test_table("SecurityGuard Test Results", results)
+        return all(r['status'] == 'passed' for r in results)
+        
+    except Exception as e:
+        print(f"❌ SecurityGuard test failed: {str(e)}")
+        return False
+
+def test_query_history():
+    """Test QueryHistory functionality"""
+    print("🧪 Testing QueryHistory Functionality...")
+    
+    try:
+        from backend.query_history import QueryHistory
+        
+        results = []
+        
+        # Initialize QueryHistory
+        start_time = time.time()
+        query_history = QueryHistory()
+        duration = time.time() - start_time
+        results.append({
+            'name': 'QueryHistory: Initialization',
+            'status': 'passed',
+            'duration': duration,
+            'details': 'QueryHistory initialized successfully'
+        })
+        
+        # Test adding query
+        start_time = time.time()
+        query_history.add_query(
+            query="SELECT * FROM customers",
+            sql="SELECT * FROM customers LIMIT 10",
+            user="test_user",
+            role="developer",
+            status="success",
+            execution_time=0.5,
+            tokens_used=150
+        )
+        duration = time.time() - start_time
+        results.append({
+            'name': 'QueryHistory: Add Query',
+            'status': 'passed',
+            'duration': duration,
+            'details': 'Query added successfully'
+        })
+        
+        # Test getting recent queries
+        start_time = time.time()
+        recent_queries = query_history.get_recent_queries(limit=5)
+        duration = time.time() - start_time
+        results.append({
+            'name': 'QueryHistory: Get Recent Queries',
+            'status': 'passed' if len(recent_queries) > 0 else 'failed',
+            'duration': duration,
+            'details': f"Retrieved {len(recent_queries)} recent queries"
+        })
+        
+        print_test_table("QueryHistory Test Results", results)
+        return all(r['status'] == 'passed' for r in results)
+        
+    except Exception as e:
+        print(f"❌ QueryHistory test failed: {str(e)}")
+        return False
+
+def test_timing_tracker():
+    """Test TimingTracker functionality"""
+    print("🧪 Testing TimingTracker Functionality...")
+    
+    try:
+        from backend.timing_tracker import TimingTracker
+        
+        results = []
+        
+        # Initialize TimingTracker
+        start_time = time.time()
+        timing_tracker = TimingTracker()
+        duration = time.time() - start_time
+        results.append({
+            'name': 'TimingTracker: Initialization',
+            'status': 'passed',
+            'duration': duration,
+            'details': 'TimingTracker initialized successfully'
+        })
+        
+        # Test timing operations
+        start_time = time.time()
+        timer_id = timing_tracker.start_timer("test_operation")
+        time.sleep(0.1)  # Simulate some work
+        timing_tracker.end_timer(timer_id)
+        duration = time.time() - start_time
+        results.append({
+            'name': 'TimingTracker: Timer Operations',
+            'status': 'passed',
+            'duration': duration,
+            'details': 'Timer start/end operations successful'
+        })
+        
+        # Test performance snapshot
+        start_time = time.time()
+        snapshot = timing_tracker.take_performance_snapshot()
+        duration = time.time() - start_time
+        results.append({
+            'name': 'TimingTracker: Performance Snapshot',
+            'status': 'passed' if snapshot else 'failed',
+            'duration': duration,
+            'details': 'Performance snapshot captured'
+        })
+        
+        print_test_table("TimingTracker Test Results", results)
+        return all(r['status'] == 'passed' for r in results)
+        
+    except Exception as e:
+        print(f"❌ TimingTracker test failed: {str(e)}")
+        return False
+
 def test_basic_components():
-    """Test basic component imports with detailed results"""
+    """Test basic component imports"""
     print("🧪 Testing Basic Component Imports...")
     
-    components_to_test = [
-        ("LLM Config", "backend.llm_config"),
-        ("Database Manager", "backend.db_manager"),
-        ("Embedder", "backend.llm_embedder"),
-        ("SQL Generator", "backend.llm_sql_generator"),
-        ("Planner Agent", "backend.planner"),
-        ("Validator Agent", "backend.validator"),
-        ("Executor Agent", "backend.executor"),
-        ("Summarizer Agent", "backend.summarizer"),
-        ("PDF Exporter", "backend.pdf_exporter"),
-        ("Query History", "backend.query_history"),
-        ("Timing Tracker", "backend.timing_tracker"),
-        ("Security Guard", "backend.security_guard")
+    components = [
+        'backend.llm_config',
+        'backend.llm_embedder',
+        'backend.llm_sql_generator',
+        'backend.planner',
+        'backend.retriever',
+        'backend.validator',
+        'backend.executor',
+        'backend.summarizer',
+        'backend.query_history',
+        'backend.timing_tracker',
+        'backend.security_guard',
+        'backend.pipeline',
+        'backend.system_initializer'
     ]
     
     results = []
-    
-    for component_name, module_path in components_to_test:
+    for component_name in components:
         start_time = time.time()
         try:
-            __import__(module_path)
+            __import__(component_name)
             duration = time.time() - start_time
             results.append({
                 'name': f"Import: {component_name}",
@@ -222,9 +395,12 @@ def main():
     
     start_time = time.time()
     
-    # Run all tests
+    # Run all tests with enhanced coverage
     test_functions = [
         ("Basic Components", test_basic_components),
+        ("SecurityGuard", test_security_guard),
+        ("QueryHistory", test_query_history),
+        ("TimingTracker", test_timing_tracker),
         ("OpenAI Integration", test_openai_integration),
         ("System Initialization", test_system_initialization),
         ("Integration Tests", test_integration_tests),

@@ -29,6 +29,7 @@ from backend.integration_test_runner import get_integration_test_results
 from backend.query_history import QueryHistory
 from backend.timing_tracker import TimingTracker
 from backend.security_guard import SecurityGuard
+from backend.ui_debugger import render_agent_flow_debugger, render_sql_details, render_planner_details, render_executor_details
 
 # Page configuration
 st.set_page_config(
@@ -41,6 +42,45 @@ st.set_page_config(
 # Custom CSS for enhanced UI
 st.markdown("""
 <style>
+    /* Process query button styling */
+    .stButton > button {
+        background-color: #4CAF50 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 12px 24px !important;
+        font-size: 16px !important;
+        font-weight: bold !important;
+        transition: all 0.3s ease !important;
+        width: 200px !important;  /* Smaller width */
+        margin: 0 auto !important;  /* Center the button */
+        display: block !important;
+    }
+    
+    .stButton > button:hover {
+        background-color: #45a049 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+    }
+    
+    /* Brighter background */
+    .main {
+        background-color: #f8f9fa !important;  /* Light gray background */
+        color: #333333 !important;  /* Darker text */
+    }
+    
+    /* Brighter sidebar */
+    .css-1d391kg {
+        background-color: #ffffff !important;
+    }
+    
+    /* Brighter text areas and inputs */
+    .stTextArea textarea, .stTextInput input {
+        background-color: #ffffff !important;
+        color: #333333 !important;
+        border: 2px solid #e0e0e0 !important;
+    }
+    
     /* Dark theme styling */
     .main {
         background-color: #0e1117;
@@ -206,46 +246,49 @@ class SecurityGuard:
         }
     
     def apply_guards(self, sql_query: str) -> Dict[str, Any]:
-        """Apply security guards to SQL query"""
+        """Apply security guards to SQL query - only show when dangerous operations detected"""
         guards_applied = {}
+        total_guards = 0
         
-        # Check for LIMIT clause
-        if "LIMIT" not in sql_query.upper():
-            guards_applied["LIMIT_INJECTION"] = "Added LIMIT 100"
-            sql_query += " LIMIT 100"
+        # Check for dangerous operations (only these should trigger guards)
+        dangerous_ops = ["DROP", "DELETE", "TRUNCATE", "UPDATE", "INSERT", "ALTER", "CREATE", "GRANT", "REVOKE", "EXEC", "EXECUTE", "SHUTDOWN", "KILL", "BACKUP", "RESTORE"]
         
-        # Check for dangerous operations
-        dangerous_ops = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
         for op in dangerous_ops:
             if op in sql_query.upper():
-                guards_applied["DANGEROUS_OPERATION"] = f"Blocked {op} operation"
-                return {"blocked": True, "reason": f"Dangerous operation: {op}"}
+                guards_applied[f"{op}_DETECTED"] = f"⚠️ Dangerous {op} operation detected"
+                total_guards += 1
         
-        # Check for invalid operations
-        if ";" in sql_query and sql_query.count(";") > 1:
-            guards_applied["INVALID_OPERATION"] = "Multiple statements detected"
-            return {"blocked": True, "reason": "Multiple SQL statements"}
+        # Check for suspicious patterns (warn but don't block)
+        suspicious_patterns = [
+            ("UNION", "UNION SELECT"),
+            ("OR_INJECTION", "OR 1=1"),
+            ("OR_TRUE", "OR TRUE"),
+            ("SCRIPT_TAG", "<script"),
+            ("JAVASCRIPT", "javascript:"),
+            ("ONLOAD", "onload="),
+            ("ONERROR", "onerror=")
+        ]
         
-        # Table validation (simplified)
-        valid_tables = ["customers", "accounts", "transactions", "branches", "employees"]
-        query_upper = sql_query.upper()
-        for table in valid_tables:
-            if f"FROM {table.upper()}" in query_upper or f"JOIN {table.upper()}" in query_upper:
-                guards_applied["TABLE_VALIDATION"] = f"Validated table: {table}"
-                break
+        for pattern_name, pattern in suspicious_patterns:
+            if pattern.upper() in sql_query.upper():
+                guards_applied[f"{pattern_name}_DETECTED"] = f"⚠️ Suspicious {pattern_name} pattern detected"
+                total_guards += 1
+        
+        # Only return guards if dangerous operations were detected
+        if total_guards == 0:
+            return {
+                "sql": sql_query,
+                "guards_applied": {},
+                "total_guards": 0,
+                "message": "No dangerous operations detected - query is safe"
+            }
         else:
-            guards_applied["TABLE_VALIDATION"] = "No valid tables found"
-        
-        # Complexity check
-        if sql_query.count("SELECT") > 2 or sql_query.count("JOIN") > 3:
-            guards_applied["COMPLEXITY_CHECK"] = "Query complexity reduced"
-            sql_query = sql_query.split("SELECT")[0] + "SELECT * FROM customers LIMIT 10"
-        
-        return {
-            "sql": sql_query,
-            "guards_applied": guards_applied,
-            "total_guards": len(guards_applied)
-        }
+            return {
+                "sql": sql_query,
+                "guards_applied": guards_applied,
+                "total_guards": total_guards,
+                "message": f"⚠️ {total_guards} security guard(s) applied due to dangerous operations"
+            }
 
 class QueryHistory:
     """Manage recent queries in session state"""
@@ -978,7 +1021,10 @@ def render_developer_ui():
     st.markdown("### 👨‍💻 Developer View")
     
     # Tech Stack and Agent Flow tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 Query", "🛠️ Tech Stack", "🤖 Agent Flow", "📊 Results", "🛡️ Security", "📄 Export"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "💬 Query", "🛠️ Tech Stack", "🤖 Agent Flow", "📊 Results", 
+        "🛡️ Security", "🔍 Debug", "🤖 Agent Debug", "📄 Export"
+    ])
     
     with tab1:
         st.markdown("#### 💬 Natural Language Query")
@@ -992,20 +1038,41 @@ def render_developer_ui():
         with col2:
             role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
         
-        # Query input
+        # Query input with Enter key handling
         query_input = st.text_area(
             "🔍 Enter your question:",
             placeholder="e.g., Find all customers who have both checking and savings accounts",
             height=100,
-            key="query_input"
+            key="query_input_dev"
         )
         
-        # Process button
-        if st.button("🚀 Process Query", type="primary", use_container_width=True):
+        # Process button with light color
+        if st.button("🚀 Process Query", use_container_width=True, 
+                    help="Click to process your query"):
             if query_input.strip():
                 process_query(query_input, user_input, role_input)
             else:
                 st.warning("Please enter a query")
+        
+        # Handle Enter key press using JavaScript
+        st.markdown("""
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const textarea = document.querySelector('textarea[data-testid="stTextArea"]');
+            if (textarea) {
+                textarea.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        const button = document.querySelector('button[data-testid="baseButton-primary"]');
+                        if (button) {
+                            button.click();
+                        }
+                    }
+                });
+            }
+        });
+        </script>
+        """, unsafe_allow_html=True)
     
     with tab2:
         st.markdown("#### 🛠️ Technology Stack")
@@ -1079,6 +1146,53 @@ def render_developer_ui():
                 export_pdf_report(st.session_state)
         else:
             st.info("No data available for export. Please run a query first.")
+    
+    with tab7:
+        st.markdown("#### 🔍 Agent Flow Debugger")
+        
+        if 'debug_report' in st.session_state:
+            # Render the comprehensive debug report
+            render_agent_flow_debugger(st.session_state.debug_report)
+            
+            # Show SQL details if available
+            if 'last_sql' in st.session_state and 'last_generated_sql' in st.session_state:
+                render_sql_details(st.session_state.last_sql, st.session_state.last_generated_sql)
+            
+            # Show planner details if available
+            if 'last_agent_flow' in st.session_state:
+                render_planner_details(st.session_state.last_agent_flow)
+                render_executor_details(st.session_state.last_agent_flow)
+        else:
+            st.info("No debug report available. Run a query to see detailed agent flow information.")
+            
+            # Show sample debug structure
+            st.markdown("**📋 Debug Information Available:**")
+            st.markdown("""
+            - **Agent Input/Output JSON** for each step
+            - **SQL Generation Details** (generated vs executed)
+            - **Planner Analysis** (tables, operations, complexity)
+            - **Executor Results** (success, timing, errors)
+            - **Timing Breakdown** by agent
+            - **Error Summary** with detailed messages
+            """)
+    
+    with tab8:
+        st.markdown("#### 🤖 Agent Debugging Dashboard")
+        
+        if 'debug_report' in st.session_state:
+            render_agent_debugging_tab()
+        else:
+            st.info("No agent debugging data available. Please run a query first.")
+            
+            # Show what will be available
+            st.markdown("**📋 Agent Debugging Features:**")
+            st.markdown("""
+            - **Individual Agent Analysis** - Select any agent to see detailed input/output JSON
+            - **Agent Performance Metrics** - Timing, status, and performance breakdown
+            - **Error Diagnostics** - Detailed error messages and troubleshooting
+            - **Agent Summary Table** - Overview of all agents' performance
+            - **Real-time Debugging** - Live agent flow with JSON inspection
+            """)
 
 def render_business_user_ui():
     """Render UI for Business User role"""
@@ -1099,20 +1213,41 @@ def render_business_user_ui():
         with col2:
             role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
         
-        # Query input
+        # Query input with Enter key handling
         query_input = st.text_area(
             "🔍 Enter your question:",
             placeholder="e.g., Find all customers who have both checking and savings accounts",
             height=100,
-            key="query_input"
+            key="query_input_business"
         )
         
-        # Process button
-        if st.button("🚀 Process Query", type="primary", use_container_width=True):
+        # Process button with light color
+        if st.button("🚀 Process Query", use_container_width=True, 
+                    help="Click to process your query"):
             if query_input.strip():
                 process_query(query_input, user_input, role_input)
             else:
                 st.warning("Please enter a query")
+        
+        # Handle Enter key press using JavaScript
+        st.markdown("""
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const textarea = document.querySelector('textarea[data-testid="stTextArea"]');
+            if (textarea) {
+                textarea.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        const button = document.querySelector('button[data-testid="baseButton-primary"]');
+                        if (button) {
+                            button.click();
+                        }
+                    }
+                });
+            }
+        });
+        </script>
+        """, unsafe_allow_html=True)
     
     with tab2:
         st.markdown("#### 📊 Query Results")
@@ -1174,9 +1309,19 @@ def process_query(query: str, user_input: str, role_input: str):
     
     # Process query
     with st.spinner("🔄 Processing.... please wait"):
-        sql, results, summary, timing_summary = simulate_agent_workflow_with_cot(
+        result = simulate_agent_workflow_with_cot(
             query, timing_tracker, cot_workflow, user=user_input, ip_address="127.0.0.1"
         )
+        
+        # Extract results from the pipeline
+        if len(result) >= 4:
+            sql, results, summary, timing_summary = result
+        else:
+            # Handle case where pipeline returns a dict
+            sql = result.get("sql", "")
+            results = result.get("results", [])
+            summary = result.get("summary", "")
+            timing_summary = result.get("timing_summary", {})
     
     # Apply security guards
     security_guard = SecurityGuard()
@@ -1191,10 +1336,13 @@ def process_query(query: str, user_input: str, role_input: str):
     st.session_state.last_summary = summary
     st.session_state.last_cot_workflow = cot_workflow
     
-    # Store validation details and security events from pipeline
-    # Note: This will be populated when the pipeline returns detailed validation info
-    st.session_state.last_validation_details = {}
-    st.session_state.last_security_events = []
+    # Store debug information from pipeline
+    if hasattr(result, 'get') and isinstance(result, dict):
+        st.session_state.debug_report = result.get("debug_report", {})
+        st.session_state.last_agent_flow = result.get("agent_flow", [])
+        st.session_state.last_generated_sql = result.get("generated_sql", sql)
+        st.session_state.last_validation_details = result.get("validation_details", {})
+        st.session_state.last_security_events = result.get("security_events", [])
     
     # Add to query history
     query_history = QueryHistory()
@@ -1274,35 +1422,261 @@ def render_security_guard_results(validation_details: Dict[str, Any], security_e
         else:
             st.info("No recent security events")
 
+def render_dark_mode_toggle():
+    """Render dark mode toggle in top right corner"""
+    # Initialize dark mode state
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = False
+    
+    # Create toggle button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col3:
+        if st.button(
+            "🌙 Dark Mode" if not st.session_state.dark_mode else "☀️ Light Mode",
+            key="dark_mode_toggle",
+            help="Toggle dark/light mode"
+        ):
+            st.session_state.dark_mode = not st.session_state.dark_mode
+            st.rerun()
+    
+    # Apply dark mode CSS
+    if st.session_state.dark_mode:
+        st.markdown("""
+        <style>
+        .main {
+            background-color: #0e1117 !important;
+            color: #fafafa !important;
+        }
+        .css-1d391kg {
+            background-color: #1e1e1e !important;
+        }
+        .stTextArea textarea, .stTextInput input {
+            background-color: #2d2d2d !important;
+            color: #fafafa !important;
+            border: 2px solid #444444 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+def render_agent_debugging_tab():
+    """Render comprehensive agent debugging tab"""
+    st.markdown("#### 🤖 Agent Debugging Dashboard")
+    
+    if 'debug_report' not in st.session_state:
+        st.info("No agent debugging data available. Please run a query first.")
+        return
+    
+    debug_report = st.session_state.debug_report
+    
+    # Agent selection
+    agents = ["Planner", "Retriever", "SQL Generator", "Validator", "Executor", "Summarizer"]
+    selected_agent = st.selectbox("Select Agent to Debug:", agents, key="agent_selector")
+    
+    if selected_agent in debug_report:
+        agent_data = debug_report[selected_agent]
+        
+        # Agent overview
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Status", agent_data.get('status', 'Unknown'))
+        with col2:
+            st.metric("Timing (ms)", f"{agent_data.get('timing_ms', 0):.2f}")
+        with col3:
+            st.metric("Input Size", len(str(agent_data.get('input', {}))))
+        
+        # Input JSON
+        st.markdown("##### 📥 Input JSON")
+        input_data = agent_data.get('input', {})
+        if input_data:
+            st.json(input_data)
+        else:
+            st.info("No input data available")
+        
+        # Output JSON
+        st.markdown("##### 📤 Output JSON")
+        output_data = agent_data.get('output', {})
+        if output_data:
+            st.json(output_data)
+        else:
+            st.info("No output data available")
+        
+        # Error details
+        if agent_data.get('error'):
+            st.markdown("##### ❌ Error Details")
+            st.error(agent_data['error'])
+        
+        # Timing breakdown
+        if 'timing_breakdown' in agent_data:
+            st.markdown("##### ⏱️ Timing Breakdown")
+            timing_data = agent_data['timing_breakdown']
+            for step, time_ms in timing_data.items():
+                st.metric(step, f"{time_ms:.2f}ms")
+    
+    # All agents summary
+    st.markdown("##### 📊 All Agents Summary")
+    if debug_report:
+        summary_data = []
+        for agent_name, agent_data in debug_report.items():
+            summary_data.append({
+                "Agent": agent_name,
+                "Status": agent_data.get('status', 'Unknown'),
+                "Timing (ms)": f"{agent_data.get('timing_ms', 0):.2f}",
+                "Input Size": len(str(agent_data.get('input', {}))),
+                "Output Size": len(str(agent_data.get('output', {})))
+            })
+        
+        st.dataframe(summary_data, use_container_width=True)
+
+def render_agent_flow_debugger():
+    """Render agent flow debugger with detailed JSON views"""
+    st.markdown("#### 🔍 Agent Flow Debugger")
+    
+    if 'agent_flow' not in st.session_state:
+        st.info("No agent flow data available. Please run a query first.")
+        return
+    
+    agent_flow = st.session_state.agent_flow
+    
+    # Agent selection tabs
+    agent_tabs = st.tabs([
+        "🧠 Planner", "🔍 Retriever", "⚙️ SQL Generator", 
+        "✅ Validator", "🚀 Executor", "📝 Summarizer"
+    ])
+    
+    agents = ["planner", "retriever", "sql_generator", "validator", "executor", "summarizer"]
+    
+    for i, (tab, agent) in enumerate(zip(agent_tabs, agents)):
+        with tab:
+            if agent in agent_flow:
+                agent_data = agent_flow[agent]
+                
+                # Agent status
+                status = agent_data.get('status', 'Unknown')
+                status_color = "green" if status == "success" else "red"
+                st.markdown(f"**Status:** :{status_color}[{status.upper()}]")
+                
+                # Input JSON
+                st.markdown("**📥 Input JSON:**")
+                input_json = agent_data.get('input', {})
+                if input_json:
+                    st.json(input_json)
+                else:
+                    st.info("No input data")
+                
+                # Output JSON
+                st.markdown("**📤 Output JSON:**")
+                output_json = agent_data.get('output', {})
+                if output_json:
+                    st.json(output_json)
+                else:
+                    st.info("No output data")
+                
+                # Error if any
+                if 'error' in agent_data:
+                    st.error(f"**Error:** {agent_data['error']}")
+                
+                # Timing
+                timing = agent_data.get('timing_ms', 0)
+                st.metric("Execution Time", f"{timing:.2f}ms")
+            else:
+                st.info(f"No data available for {agent}")
+
+def render_sql_details():
+    """Render SQL generation details"""
+    st.markdown("#### ⚙️ SQL Generation Details")
+    
+    if 'generated_sql' not in st.session_state:
+        st.info("No SQL generation data available. Please run a query first.")
+        return
+    
+    sql_data = st.session_state.generated_sql
+    
+    # SQL Query
+    st.markdown("**🔍 Generated SQL Query:**")
+    st.code(sql_data.get('sql', 'No SQL generated'), language='sql')
+    
+    # Generation details
+    if 'details' in sql_data:
+        st.markdown("**📋 Generation Details:**")
+        st.json(sql_data['details'])
+    
+    # Validation results
+    if 'validation' in sql_data:
+        st.markdown("**✅ Validation Results:**")
+        st.json(sql_data['validation'])
+
+def render_planner_details():
+    """Render planner agent details"""
+    st.markdown("#### 🧠 Planner Agent Details")
+    
+    if 'agent_flow' not in st.session_state or 'planner' not in st.session_state.agent_flow:
+        st.info("No planner data available. Please run a query first.")
+        return
+    
+    planner_data = st.session_state.agent_flow['planner']
+    
+    # Planning strategy
+    st.markdown("**🎯 Planning Strategy:**")
+    strategy = planner_data.get('output', {}).get('strategy', 'No strategy available')
+    st.write(strategy)
+    
+    # Steps breakdown
+    if 'steps' in planner_data.get('output', {}):
+        st.markdown("**📋 Planning Steps:**")
+        steps = planner_data['output']['steps']
+        for i, step in enumerate(steps, 1):
+            st.markdown(f"**Step {i}:** {step}")
+
+def render_executor_details():
+    """Render executor agent details"""
+    st.markdown("#### 🚀 Executor Agent Details")
+    
+    if 'agent_flow' not in st.session_state or 'executor' not in st.session_state.agent_flow:
+        st.info("No executor data available. Please run a query first.")
+        return
+    
+    executor_data = st.session_state.agent_flow['executor']
+    
+    # Execution results
+    st.markdown("**📊 Execution Results:**")
+    results = executor_data.get('output', {})
+    if results:
+        st.json(results)
+    else:
+        st.info("No execution results available")
+    
+    # Performance metrics
+    timing = executor_data.get('timing_ms', 0)
+    st.metric("Execution Time", f"{timing:.2f}ms")
+
 def main():
     """Main application function"""
     # Initialize Enter key tracking
     if 'enter_pressed' not in st.session_state:
         st.session_state.enter_pressed = False
     
-    # Header with centered title
-    # Header with centered title
+    # Dark mode toggle
+    render_dark_mode_toggle()
+    
+    # Header with centered title and reduced top margin
     st.markdown("""
-    <div style="text-align: center; margin: 20px 0;">
-        <h1 style="color: #FF6B35; font-size: 2.5em; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
-            Wells Aug HackAThon NL 2 SQL DataInsight
+    <div style="text-align: center; margin-top: -40px; margin-bottom: 20px;">
+        <h1 style="color: #1f77b4; font-size: 2.5em; font-weight: bold; margin-bottom: 10px;">
+            WELLS - NL2SQL Data Insighter
         </h1>
+        <p style="color: #666; font-size: 1.1em; margin: 0;">
+            Natural Language to SQL Query Processing with AI Agents
+        </p>
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("**Natural Language to SQL with Retrieval-Augmented Generation**")
-    
-    # Initialize components
     # Initialize enhanced components in session state
-if 'query_history' not in st.session_state:
-    st.session_state.query_history = QueryHistory()
-if 'timing_tracker' not in st.session_state:
-    st.session_state.timing_tracker = TimingTracker()
-if 'security_guard' not in st.session_state:
-    st.session_state.security_guard = SecurityGuard()
-    
-    # Initialize query history
-    QueryHistory()
+    if 'query_history' not in st.session_state:
+        st.session_state.query_history = QueryHistory()
+    if 'timing_tracker' not in st.session_state:
+        st.session_state.timing_tracker = TimingTracker()
+    if 'security_guard' not in st.session_state:
+        st.session_state.security_guard = SecurityGuard()
     
     # Sidebar
     with st.sidebar:

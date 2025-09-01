@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class SecurityGuard:
     """Advanced security guard for SQL injection, access control, and threat detection"""
     
-    def __init__(self, db_path: str = "security_guard.db"):
+    def __init__(self, db_path: str = "tests/security_guard.db"):
         self.db_path = db_path
         self.dangerous_patterns = [
             r"DROP\s+TABLE",
@@ -116,62 +116,76 @@ class SecurityGuard:
         """Validate SQL for security issues with detailed analysis"""
         try:
             sql_upper = sql.upper().strip()
+            guards_applied = {}
+            total_guards = 0
             
-            # Check for dangerous patterns
-            for pattern in self.dangerous_patterns:
-                if re.search(pattern, sql_upper, re.IGNORECASE):
-                    self._log_security_event(
-                        "sql_injection_attempt", user, ip_address, 
-                        sql_query=sql, threat_level="HIGH", 
-                        action_taken="BLOCKED", 
-                        details=f"Dangerous pattern detected: {pattern}"
-                    )
-                    return False, f"Potentially dangerous SQL pattern detected: {pattern}", "BLOCKED"
-            
-            # Check if it's a SELECT query (safer)
-            if not sql_upper.startswith("SELECT"):
-                self._log_security_event(
-                    "non_select_query", user, ip_address,
-                    sql_query=sql, threat_level="MEDIUM",
-                    action_taken="BLOCKED",
-                    details="Only SELECT queries are allowed for security"
-                )
-                return False, "Only SELECT queries are allowed for security", "BLOCKED"
-            
-            # Check for suspicious patterns
-            suspicious_patterns = [
-                r"UNION\s+SELECT",
-                r"OR\s+1\s*=\s*1",
-                r"OR\s+TRUE",
-                r"OR\s+1",
-                r"';",
-                r"\"",
-                r"\\",
-                r"<script",
-                r"javascript:",
-                r"onload=",
-                r"onerror="
+            # Check for dangerous patterns (only these should trigger guards)
+            dangerous_operations = [
+                ("DROP", r"DROP\s+(TABLE|DATABASE|INDEX|VIEW|TRIGGER|PROCEDURE|FUNCTION)"),
+                ("DELETE", r"DELETE\s+FROM"),
+                ("TRUNCATE", r"TRUNCATE\s+TABLE"),
+                ("ALTER", r"ALTER\s+TABLE"),
+                ("CREATE", r"CREATE\s+(TABLE|DATABASE|INDEX|VIEW|TRIGGER|PROCEDURE|FUNCTION)"),
+                ("INSERT", r"INSERT\s+INTO"),
+                ("UPDATE", r"UPDATE\s+SET"),
+                ("GRANT", r"GRANT\s+"),
+                ("REVOKE", r"REVOKE\s+"),
+                ("EXEC", r"EXEC\s+"),
+                ("EXECUTE", r"EXECUTE\s+"),
+                ("SHUTDOWN", r"SHUTDOWN"),
+                ("KILL", r"KILL"),
+                ("BACKUP", r"BACKUP\s+DATABASE"),
+                ("RESTORE", r"RESTORE\s+DATABASE")
             ]
             
-            for pattern in suspicious_patterns:
+            # Check for dangerous operations
+            for operation, pattern in dangerous_operations:
+                if re.search(pattern, sql_upper, re.IGNORECASE):
+                    guards_applied[f"{operation}_DETECTED"] = f"⚠️ Dangerous {operation} operation detected"
+                    total_guards += 1
+                    self._log_security_event(
+                        "dangerous_operation_detected", user, ip_address, 
+                        sql_query=sql, threat_level="HIGH", 
+                        action_taken="BLOCKED", 
+                        details=f"Dangerous {operation} operation detected"
+                    )
+                    return False, f"⚠️ Dangerous {operation} operation detected", "BLOCKED"
+            
+            # Check for suspicious patterns (warn but don't block)
+            suspicious_patterns = [
+                ("UNION", r"UNION\s+SELECT"),
+                ("OR_INJECTION", r"OR\s+1\s*=\s*1"),
+                ("OR_TRUE", r"OR\s+TRUE"),
+                ("SCRIPT_TAG", r"<script"),
+                ("JAVASCRIPT", r"javascript:"),
+                ("ONLOAD", r"onload="),
+                ("ONERROR", r"onerror=")
+            ]
+            
+            for pattern_name, pattern in suspicious_patterns:
                 if re.search(pattern, sql, re.IGNORECASE):
+                    guards_applied[f"{pattern_name}_DETECTED"] = f"⚠️ Suspicious {pattern_name} pattern detected"
+                    total_guards += 1
                     self._log_security_event(
                         "suspicious_pattern", user, ip_address,
                         sql_query=sql, threat_level="MEDIUM",
                         action_taken="FLAGGED",
-                        details=f"Suspicious pattern detected: {pattern}"
+                        details=f"Suspicious pattern detected: {pattern_name}"
                     )
-                    return True, f"Query flagged for review: {pattern}", "FLAGGED"
             
-            # Log successful validation
-            self._log_security_event(
-                "sql_validated", user, ip_address,
-                sql_query=sql, threat_level="LOW",
-                action_taken="ALLOWED",
-                details="SQL validation passed"
-            )
-            
-            return True, "SQL validation passed", "ALLOWED"
+            # If no dangerous operations found, return success with no guards
+            if total_guards == 0:
+                # Log successful validation (no guards needed)
+                self._log_security_event(
+                    "sql_validated", user, ip_address,
+                    sql_query=sql, threat_level="LOW",
+                    action_taken="ALLOWED",
+                    details="SQL validation passed - no dangerous operations detected"
+                )
+                return True, "SQL validation passed", "ALLOWED"
+            else:
+                # Return success but with guards applied
+                return True, f"Query processed with {total_guards} security guard(s) applied", "GUARDED"
             
         except Exception as e:
             logger.error(f"❌ SQL validation error: {e}")

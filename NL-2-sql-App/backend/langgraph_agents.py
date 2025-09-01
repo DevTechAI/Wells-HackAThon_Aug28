@@ -170,7 +170,7 @@ class LangGraphAgents:
         
         try:
             # Call validator
-            is_valid, reason = self.validator.is_safe_sql(state["sql"])
+            is_valid, reason, details = self.validator.is_safe_sql(state["sql"])
             validation_result = {"valid": is_valid, "reason": reason}
             state["validation_result"] = validation_result
             

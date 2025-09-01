@@ -264,7 +264,7 @@ class BackendTestRunner:
             
             # Test validator
             validator = ValidatorAgent(schema_tables)
-            is_safe, _ = validator.is_safe_sql("SELECT * FROM customers LIMIT 10")
+            is_safe, _, _ = validator.is_safe_sql("SELECT * FROM customers LIMIT 10")
             
             # Test executor
             executor = ExecutorAgent(":memory:")

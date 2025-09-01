@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import time
+from .agent_debugger import EnhancedPipelineDebugger
 
 @dataclass
 class PipelineConfig:
@@ -29,9 +30,13 @@ class NL2SQLPipeline:
         self.summarizer = summarizer
         self.schema_tables = schema_tables
         self.cfg = config
+        self.debugger = EnhancedPipelineDebugger()
 
     def run(self, nl_query: str, clarified_values: Optional[Dict[str, Any]] = None, 
             user: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
+        # Start debug session
+        self.debugger.start_query_debug(nl_query)
+        
         print(f"\n{'='*60}")
         print(f"🚀 ORCHESTRATOR: Starting pipeline execution")
         print(f"📝 Query: {nl_query}")
@@ -51,19 +56,12 @@ class NL2SQLPipeline:
         diag.timings_ms["planning"] = int((time.time() - t0) * 1000)
         diag.chosen_tables = plan.get("tables", [])
         
-        # Log planner output
-        planner_output = {
-            "agent": "PLANNER",
-            "input": {"query": nl_query},
-            "output": {
-                "tables": plan.get("tables", []),
-                "capabilities": plan.get("capabilities", []),
-                "clarifications": plan.get("clarifications", []),
-                "follow_up_suggestions": plan.get("follow_up_suggestions", [])
-            },
-            "timing_ms": diag.timings_ms["planning"]
-        }
-        agent_flow.append(planner_output)
+        # Log planner with debugger
+        self.debugger.log_planner(
+            input_data={"query": nl_query},
+            output_data=plan,
+            timing_ms=diag.timings_ms["planning"]
+        )
         
         print(f"✅ ORCHESTRATOR: PLANNER AGENT returned control")
         print(f"📊 PLANNER OUTPUT: tables={diag.chosen_tables}, capabilities={plan.get('capabilities', [])}")
@@ -84,26 +82,15 @@ class NL2SQLPipeline:
         ctx_bundle = self.retriever.retrieve(nl_query, self.schema_tables)
         diag.timings_ms["retrieval"] = int((time.time() - t1) * 1000)
         
-        # Log retriever output with detailed ChromaDB and Ollama interactions
-        retriever_output = {
-            "agent": "RETRIEVER",
-            "input": {
+        # Log retriever with debugger
+        self.debugger.log_retriever(
+            input_data={
                 "query": nl_query,
                 "available_tables": list(self.schema_tables.keys())
             },
-            "output": {
-                "schema_context_count": len(ctx_bundle.get('schema_context', [])),
-                "schema_context_preview": ctx_bundle.get('schema_context', [])[:3],  # First 3 items
-                "value_hints_count": len(ctx_bundle.get('value_hints', {})),
-                "exemplars_count": len(ctx_bundle.get('exemplars', [])),
-                "retrieval_method": ctx_bundle.get('retrieval_method', 'unknown'),
-                "chromadb_interactions": ctx_bundle.get('chromadb_interactions', {}),
-                "ollama_interactions": ctx_bundle.get('ollama_interactions', {}),
-                "vector_search_details": ctx_bundle.get('vector_search_details', {})
-            },
-            "timing_ms": diag.timings_ms["retrieval"]
-        }
-        agent_flow.append(retriever_output)
+            output_data=ctx_bundle,
+            timing_ms=diag.timings_ms["retrieval"]
+        )
         
         print(f"✅ ORCHESTRATOR: RETRIEVER AGENT returned control")
         print(f"📚 RETRIEVER OUTPUT: Retrieved {len(ctx_bundle.get('schema_context', []))} schema items")
@@ -143,25 +130,21 @@ class NL2SQLPipeline:
         diag.generated_sql = sql
         diag.timings_ms["generation"] = int((time.time() - t2) * 1000)
         
-        # Log SQL generator output
-        sql_generator_output = {
-            "agent": "SQL_GENERATOR",
-            "input": {
+        # Log SQL generator with debugger
+        self.debugger.log_sql_generator(
+            input_data={
                 "query": nl_query,
                 "schema_context_count": len(gen_ctx.get('schema_context', [])),
                 "value_hints_count": len(gen_ctx.get('value_hints', {})),
-                "exemplars_count": len(gen_ctx.get('exemplars', [])),
-                "clarified_values": gen_ctx.get('clarified_values', {})
+                "exemplars_count": len(gen_ctx.get('exemplars', []))
             },
-            "output": {
+            output_data={
                 "generated_sql": sql,
-                "sql_length": len(sql),
                 "used_special_handler": "employee" in nl_query.lower() and "transaction" in nl_query.lower() and "customer" in nl_query.lower(),
                 "used_fallback": "LIMIT 10" in sql and ("SELECT * FROM" in sql)
             },
-            "timing_ms": diag.timings_ms["generation"]
-        }
-        agent_flow.append(sql_generator_output)
+            timing_ms=diag.timings_ms["generation"]
+        )
         
         print(f"✅ ORCHESTRATOR: SQL GENERATOR AGENT returned control")
         print(f"🔧 SQL GENERATOR OUTPUT: SQL='{sql}'")
@@ -185,26 +168,24 @@ class NL2SQLPipeline:
             # Get detailed validation report including security guard info
             validation_report = self.validator.get_validation_report(sql, user, ip_address)
             
-            # Log validator output
-            validator_output = {
-                "agent": "VALIDATOR",
-                "attempt": attempts + 1,
-                "input": {
+            # Log validator with debugger
+            self.debugger.log_validator(
+                input_data={
                     "sql": sql,
                     "schema_tables": list(self.schema_tables.keys()),
                     "user": user,
                     "ip_address": ip_address
                 },
-                "output": {
+                output_data={
                     "is_safe": ok,
                     "reason": reason,
                     "validation_passed": ok,
                     "validation_details": validation_report.get("details", {}),
                     "security_events": validation_report.get("security_events", [])
                 },
-                "timing_ms": diag.timings_ms["validation"]
-            }
-            agent_flow.append(validator_output)
+                timing_ms=diag.timings_ms["validation"],
+                attempt=attempts + 1
+            )
 
             if not ok:
                 print(f"❌ ORCHESTRATOR: VALIDATOR AGENT rejected SQL")
@@ -236,22 +217,20 @@ class NL2SQLPipeline:
             exec_result = self.executor.run_query(sql, limit=self.cfg.sql_row_limit)
             diag.timings_ms["execution"] = int((time.time() - t4) * 1000)
             
-            # Log executor output
-            executor_output = {
-                "agent": "EXECUTOR",
-                "input": {
+            # Log executor with debugger
+            self.debugger.log_executor(
+                input_data={
                     "sql": sql,
                     "limit": self.cfg.sql_row_limit
                 },
-                "output": {
+                output_data={
                     "success": exec_result.get("success", False),
-                    "results_count": len(exec_result.get("results", [])),
+                    "results": exec_result.get("results", []),
                     "error": exec_result.get("error", None),
                     "execution_time_ms": diag.timings_ms["execution"]
                 },
-                "timing_ms": diag.timings_ms["execution"]
-            }
-            agent_flow.append(executor_output)
+                timing_ms=diag.timings_ms["execution"]
+            )
 
             if exec_result.get("success"):
                 print(f"✅ ORCHESTRATOR: EXECUTOR AGENT returned control")
@@ -275,26 +254,20 @@ class NL2SQLPipeline:
                 out = self.summarizer.summarize(nl_query, exec_result)
                 diag.timings_ms["summarization"] = int((time.time() - t5) * 1000)
                 
-                # Log summarizer output
-                summarizer_output = {
-                    "agent": "SUMMARIZER",
-                    "input": {
+                # Log summarizer with debugger
+                self.debugger.log_summarizer(
+                    input_data={
                         "query": nl_query,
                         "results_count": len(exec_result.get('results', [])),
                         "execution_success": exec_result.get("success", False)
                     },
-                    "output": {
-                        "summary_length": len(out.get("summary", "")),
-                        "has_suggestions": "suggestions" in out,
-                        "suggestions_count": len(out.get("suggestions", []))
-                    },
-                    "timing_ms": diag.timings_ms["summarization"]
-                }
-                agent_flow.append(summarizer_output)
+                    output_data=out,
+                    timing_ms=diag.timings_ms["summarization"]
+                )
                 
                 print(f"✅ ORCHESTRATOR: SUMMARIZER AGENT returned control")
                 print(f"📝 SUMMARIZER OUTPUT: Summary length={len(out.get('summary', ''))} characters")
-                print(f"📝 SUMMARIZER OUTPUT: Has suggestions={summarizer_output['output']['has_suggestions']}")
+                print(f"📝 SUMMARIZER OUTPUT: Has suggestions={'suggestions' in out}")
                 print(f"⏱️ SUMMARIZER timing: {diag.timings_ms['summarization']}ms")
                 
                 out["sql"] = sql
@@ -302,6 +275,13 @@ class NL2SQLPipeline:
                 out["success"] = True
                 out["generated_sql"] = diag.generated_sql
                 out["agent_flow"] = agent_flow  # Add agent flow to output
+                
+                # Add debug report
+                debug_report = self.debugger.get_debug_report()
+                out["debug_report"] = debug_report
+                
+                # Print final debug summary
+                self.debugger.print_final_summary()
                 
                 # Add planner suggestions if available
                 if hasattr(self, 'planner') and hasattr(self.planner, 'analyze_query'):

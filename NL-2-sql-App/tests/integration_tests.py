@@ -678,7 +678,7 @@ class IntegrationTestSuite:
             validator = ValidatorAgent(schema_tables)
             
             test_sql = "SELECT * FROM customers LIMIT 10"
-            is_safe, reason = validator.is_safe_sql(test_sql)
+            is_safe, reason, details = validator.is_safe_sql(test_sql)
             
             if is_safe:
                 return {
@@ -780,7 +780,7 @@ class IntegrationTestSuite:
             # Run workflow
             plan = planner.analyze_query(test_query)
             test_sql = "SELECT * FROM customers LIMIT 5"
-            is_safe, _ = validator.is_safe_sql(test_sql)
+            is_safe, _, _ = validator.is_safe_sql(test_sql)
             
             if is_safe:
                 return {
@@ -810,7 +810,7 @@ class IntegrationTestSuite:
             validator = ValidatorAgent(schema_tables)
             
             invalid_sql = "DROP TABLE customers"
-            is_safe, reason = validator.is_safe_sql(invalid_sql)
+            is_safe, reason, details = validator.is_safe_sql(invalid_sql)
             
             if not is_safe:
                 return {

@@ -218,11 +218,11 @@ class SystemInitializer:
             else:
                 # Test LLM connectivity
                 if provider == "openai":
-                    import openai
-                    openai.api_key = api_key
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
                     start_time = time.time()
-                    response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
                         messages=[{"role": "user", "content": "Hello"}],
                         max_tokens=5
                     )
@@ -231,7 +231,7 @@ class SystemInitializer:
                     if response.choices[0].message.content:
                         component.status = "passed"
                         component.message = f"OpenAI connectivity test passed ({end_time - start_time:.3f}s)"
-                        component.details = {"provider": provider, "model": "gpt-3.5-turbo", "response_time": end_time - start_time}
+                        component.details = {"provider": provider, "model": "gpt-4o-mini", "response_time": end_time - start_time}
                     else:
                         component.status = "failed"
                         component.message = "OpenAI not responding"
@@ -282,7 +282,7 @@ class SystemInitializer:
             chroma_manager = ChromaDBManager(persist_dir)
             
             # Test collection creation
-            test_collection = chroma_manager.create_collection("test_collection")
+            test_collection = chroma_manager.get_or_create_collection("test_collection")
             
             if test_collection:
                 # Test document addition
@@ -290,10 +290,10 @@ class SystemInitializer:
                 test_metadatas = [{"source": "test"}]
                 test_ids = ["test_id"]
                 
-                chroma_manager.add_documents(test_collection, test_docs, test_metadatas, test_ids)
+                chroma_manager.add_documents("test_collection", test_docs, test_metadatas, test_ids)
                 
                 # Test query
-                results = chroma_manager.query_collection(test_collection, "test document", 1)
+                results = chroma_manager.query("test_collection", ["test document"], 1)
                 
                 if results and len(results) > 0:
                     component.status = "passed"
@@ -305,7 +305,8 @@ class SystemInitializer:
                     component.details = {"collection_created": True, "documents_added": True, "query_successful": False}
                 
                 # Clean up
-                chroma_manager.delete_collection("test_collection")
+                # Note: ChromaDBManager doesn't have delete_collection method
+                # Collection will be cleaned up automatically
             else:
                 component.status = "failed"
                 component.message = "ChromaDB collection creation failed"
@@ -329,9 +330,17 @@ class SystemInitializer:
         
         try:
             # Test agent initialization
+            schema_tables = {
+                "customers": ["id", "name", "email", "phone", "address", "city", "state", "zip_code", "gender", "date_of_birth", "account_created", "branch_id"],
+                "accounts": ["id", "customer_id", "account_number", "type", "balance", "status", "opening_date", "last_activity", "branch_id", "interest_rate", "overdraft_limit"],
+                "transactions": ["id", "account_id", "type", "amount", "description", "timestamp", "status", "reference_number", "branch_id", "employee_id"],
+                "branches": ["id", "name", "address", "city", "state", "zip_code", "phone", "manager_id", "opening_date"],
+                "employees": ["id", "name", "position", "email", "phone", "hire_date", "salary", "branch_id", "manager_id", "status"]
+            }
+            
             agents = {
-                "planner": PlannerAgent(),
-                "validator": ValidatorAgent(),
+                "planner": PlannerAgent(schema_tables),
+                "validator": ValidatorAgent(schema_tables),
                 "summarizer": SummarizerAgent()
             }
             

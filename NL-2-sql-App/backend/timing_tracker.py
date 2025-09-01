@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TimingTracker:
     """Performance timing tracker with database persistence and advanced analytics"""
     
-    def __init__(self, db_path: str = "timing_tracker.db"):
+    def __init__(self, db_path: str = "tests/timing_tracker.db"):
         self.db_path = db_path
         self.timings = {}
         self.start_times = {}

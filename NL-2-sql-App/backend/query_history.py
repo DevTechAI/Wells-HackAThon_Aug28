@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class QueryHistory:
     """Query history tracker with database persistence and advanced features"""
     
-    def __init__(self, db_path: str = "query_history.db"):
+    def __init__(self, db_path: str = "tests/query_history.db"):
         self.db_path = db_path
         self.max_history = 1000  # Increased for database storage
         self._init_database()

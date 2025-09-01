@@ -15,4 +15,5 @@ dependencies = [
     "openai>=1.102.0",
     "google-generativeai>=0.8.5",
     "psutil>=7.0.0",
+    "plotly>=6.3.0",
 ]

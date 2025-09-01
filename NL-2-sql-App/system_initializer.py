@@ -375,7 +375,7 @@ class SystemInitializer:
             try:
                 schema_tables = {"customers": ["id", "name"]}
                 validator = ValidatorAgent(schema_tables)
-                is_safe, _ = validator.is_safe_sql("SELECT * FROM customers LIMIT 10")
+                is_safe, _, _ = validator.is_safe_sql("SELECT * FROM customers LIMIT 10")
                 
                 if is_safe:
                     agent_results["validator"] = {"status": "passed", "validation_passed": True}
@@ -461,7 +461,7 @@ class SystemInitializer:
             # Run workflow steps
             plan = planner.analyze_query(test_query)
             test_sql = "SELECT * FROM customers LIMIT 5"
-            is_safe, _ = validator.is_safe_sql(test_sql)
+            is_safe, _, _ = validator.is_safe_sql(test_sql)
             result = executor.run_query(test_sql)
             
             if plan and is_safe and result.get("success"):
@@ -503,7 +503,7 @@ class SystemInitializer:
             
             blocked_count = 0
             for query in dangerous_queries:
-                is_safe, _ = validator.is_safe_sql(query)
+                is_safe, _, _ = validator.is_safe_sql(query)
                 if not is_safe:
                     blocked_count += 1
             
@@ -516,7 +516,7 @@ class SystemInitializer:
             
             allowed_count = 0
             for query in safe_queries:
-                is_safe, _ = validator.is_safe_sql(query)
+                is_safe, _, _ = validator.is_safe_sql(query)
                 if is_safe:
                     allowed_count += 1
             
