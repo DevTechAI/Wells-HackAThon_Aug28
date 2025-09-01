@@ -26,6 +26,9 @@ from backend.summarizer import SummarizerAgent
 from backend.db_manager import get_db_manager
 from backend.llm_config import llm_config
 from backend.integration_test_runner import get_integration_test_results
+from backend.query_history import QueryHistory
+from backend.timing_tracker import TimingTracker
+from backend.security_guard import SecurityGuard
 
 # Page configuration
 st.set_page_config(
@@ -442,22 +445,9 @@ def render_recent_queries_sidebar():
     """Render recent queries in sidebar"""
     st.sidebar.markdown("### 📋 Recent Queries")
     
-    # Use the existing QueryHistory instance from session state
-    if 'query_history' in st.session_state:
-        query_history = st.session_state.query_history
-        # Ensure we get a list from the QueryHistory object
-        if hasattr(query_history, 'get_history'):
-            history = query_history.get_history()
-        else:
-            # If it's not a QueryHistory object, try to use it directly
-            history = query_history if isinstance(query_history, list) else []
-    else:
-        history = []
-    
-    # Ensure history is a list
-    if not isinstance(history, list):
-        st.sidebar.warning("Query history format error")
-        history = []
+    # Get query history using QueryHistory class
+    query_history = QueryHistory()
+    history = query_history.get_history()
     
     if not history:
         st.sidebar.info("No recent queries")
@@ -803,7 +793,8 @@ def export_pdf_report(session_state):
         st.error(f"❌ Error generating PDF: {str(e)}")
         st.exception(e)
 
-def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, cot_workflow: CoTWorkflow) -> tuple:
+def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, cot_workflow: CoTWorkflow, 
+                                     user: Optional[str] = None, ip_address: Optional[str] = None) -> tuple:
     """Execute real agent workflow with Chain-of-Thought tracking"""
     timing_tracker.start_tracking()
     
@@ -839,7 +830,7 @@ def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, 
             schema_tables = {"customers": ["id", "name", "email"], "accounts": ["id", "customer_id", "type"]}
         
         # Initialize agents
-        planner = PlannerAgent()
+        planner = PlannerAgent(schema_tables)
         retriever = RetrieverAgent()
         generator = LLMSQLGenerator()
         validator = ValidatorAgent()
@@ -862,7 +853,7 @@ def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, 
         )
         
         # Execute pipeline with real-time CoT updates
-        result = pipeline.run(query)
+        result = pipeline.run(query, user=user, ip_address=ip_address)
         
         # Update CoT steps based on actual execution
         steps = cot_workflow.get_steps()
@@ -908,12 +899,86 @@ def simulate_agent_workflow_with_cot(query: str, timing_tracker: TimingTracker, 
         
         return sql, results, summary, timing_tracker.get_summary()
 
+def handle_query_submit(role_type):
+    """Handle query submission when Enter is pressed"""
+    if 'query_input' in st.session_state and st.session_state.query_input.strip():
+        # Get user input based on role
+        if role_type == "developer":
+            user_input = st.session_state.get("user_input", "Developer")
+            role_input = st.session_state.get("role_input", "Developer")
+        else:
+            user_input = st.session_state.get("user_input", "Business User")
+            role_input = st.session_state.get("role_input", "Business User")
+        
+        # Process the query
+        process_query(st.session_state.query_input, user_input, role_input)
+
+def create_query_input_with_enter_support(label, placeholder, key, role_type):
+    """Create a query input that processes on Enter key press"""
+    
+    # Add custom CSS and JavaScript for Enter key handling
+    st.markdown(f"""
+    <style>
+    .query-input-container {{
+        position: relative;
+    }}
+    </style>
+    <script>
+    // Function to handle Enter key for {key}
+    function handleEnterKey_{key.replace('-', '_')}() {{
+        const textarea = document.querySelector('textarea[data-testid="stTextArea"]');
+        if (textarea) {{
+            textarea.addEventListener('keydown', function(e) {{
+                if (e.key === 'Enter' && !e.shiftKey) {{
+                    e.preventDefault();
+                    // Set session state to trigger processing
+                    window.parent.postMessage({{
+                        type: 'streamlit:setComponentValue',
+                        key: '{key}_enter_pressed',
+                        value: true
+                    }}, '*');
+                }}
+            }});
+        }}
+    }}
+    
+    // Run the function
+    handleEnterKey_{key.replace('-', '_')}();
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Create the text area
+    query_input = st.text_area(
+        label,
+        placeholder=placeholder,
+        height=100,
+        key=key
+    )
+    
+    # Check if Enter was pressed
+    if st.session_state.get(f"{key}_enter_pressed", False):
+        st.session_state[f"{key}_enter_pressed"] = False
+        if query_input.strip():
+            # Get user input based on role
+            if role_type == "developer":
+                user_input = st.session_state.get("user_input", "Developer")
+                role_input = st.session_state.get("role_input", "Developer")
+            else:
+                user_input = st.session_state.get("user_input", "Business User")
+                role_input = st.session_state.get("role_input", "Business User")
+            
+            # Process the query
+            process_query(query_input, user_input, role_input)
+            st.rerun()
+    
+    return query_input
+
 def render_developer_ui():
     """Render UI for Developer role"""
     st.markdown("### 👨‍💻 Developer View")
     
     # Tech Stack and Agent Flow tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Query", "🛠️ Tech Stack", "🤖 Agent Flow", "📊 Results", "📄 Export"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["💬 Query", "🛠️ Tech Stack", "🤖 Agent Flow", "📊 Results", "🛡️ Security", "📄 Export"])
     
     with tab1:
         st.markdown("#### 💬 Natural Language Query")
@@ -922,10 +987,10 @@ def render_developer_ui():
         col1, col2 = st.columns(2)
         
         with col1:
-            user_input = st.text_input("👤 Your Name:", value="Developer", key="user_input")
+            user_input = st.text_input("👤 Your Name:", value="John", placeholder="Enter your name", key="user_input")
         
         with col2:
-            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
+            role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
         
         # Query input
         query_input = st.text_area(
@@ -984,6 +1049,29 @@ def render_developer_ui():
             st.info("No results available. Please run a query first.")
     
     with tab5:
+        st.markdown("#### 🛡️ Security Guard Results")
+        
+        if 'last_guards' in st.session_state:
+            # Display security guard results
+            guards = st.session_state.last_guards
+            
+            # Check if we have validation details from the pipeline
+            if 'last_validation_details' in st.session_state:
+                validation_details = st.session_state.last_validation_details
+                security_events = st.session_state.get('last_security_events', [])
+                render_security_guard_results(validation_details, security_events)
+            else:
+                # Fallback to basic guard information
+                st.info("Security validation completed")
+                if isinstance(guards, dict):
+                    for key, value in guards.items():
+                        st.write(f"**{key}:** {value}")
+                else:
+                    st.write(f"**Guards:** {guards}")
+        else:
+            st.info("No security guard data available. Please run a query first.")
+    
+    with tab6:
         st.markdown("#### 📄 Export Report")
         
         if 'last_results' in st.session_state:
@@ -1006,10 +1094,10 @@ def render_business_user_ui():
         col1, col2 = st.columns(2)
         
         with col1:
-            user_input = st.text_input("👤 Your Name:", value="Business User", key="user_input")
+            user_input = st.text_input("👤 Your Name:", value="John", placeholder="Enter your name", key="user_input_business")
         
         with col2:
-            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
+            role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
         
         # Query input
         query_input = st.text_area(
@@ -1071,99 +1159,6 @@ def render_business_user_ui():
             else:
                 st.warning("Please enter your feedback")
 
-def render_analyst_ui():
-    """Render UI for Analyst role (default view)"""
-    st.markdown("### 📊 Analyst View")
-    
-    # Standard tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 Query", "📊 Results", "📈 Analysis", "📄 Export"])
-    
-    with tab1:
-        st.markdown("#### 💬 Natural Language Query")
-        
-        # User inputs
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            user_input = st.text_input("👤 Your Name:", value="Analyst", key="user_input")
-        
-        with col2:
-            role_input = st.selectbox("🎭 Your Role:", ["Analyst", "Developer", "Business User"], key="role_input")
-        
-        # Query input
-        query_input = st.text_area(
-            "🔍 Enter your question:",
-            placeholder="e.g., Find all customers who have both checking and savings accounts",
-            height=100,
-            key="query_input"
-        )
-        
-        # Process button
-        if st.button("🚀 Process Query", type="primary", use_container_width=True):
-            if query_input.strip():
-                process_query(query_input, user_input, role_input)
-            else:
-                st.warning("Please enter a query")
-    
-    with tab2:
-        st.markdown("#### 📊 Query Results")
-        
-        if 'last_results' in st.session_state:
-            # Results count
-            results_count = len(st.session_state.last_results)
-            st.metric("Results", f"{results_count} records")
-            
-            # Pagination
-            if results_count > 10:
-                pagination_manager = PaginationManager(st.session_state.last_results)
-                render_paginated_results(st.session_state.last_results, pagination_manager)
-            else:
-                st.dataframe(st.session_state.last_results, use_container_width=True)
-        else:
-            st.info("No results available. Please run a query first.")
-    
-    with tab3:
-        st.markdown("#### 📈 Analysis & Insights")
-        
-        if 'last_summary' in st.session_state:
-            # Summary
-            st.markdown("##### 📝 Summary")
-            st.write(st.session_state.last_summary)
-            
-            # Security validation
-            if 'last_guards' in st.session_state:
-                render_security_validation_section(st.session_state.last_guards)
-            
-            # Timing dashboard
-            if 'last_timing_summary' in st.session_state:
-                render_detailed_timing_dashboard(st.session_state.last_timing_summary)
-            
-            # Chain-of-Thought workflow
-            if 'last_cot_workflow' in st.session_state:
-                render_cot_workflow(st.session_state.last_cot_workflow)
-        else:
-            st.info("No analysis available. Please run a query first.")
-    
-    with tab4:
-        st.markdown("#### 📄 Export Report")
-        
-        if 'last_results' in st.session_state:
-            # PDF Export section
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button("📊 Export to PDF", type="secondary"):
-                    export_pdf_report(st.session_state)
-
-            with col2:
-                st.markdown("**Export includes:**")
-                st.markdown("- 📋 Query details and generated SQL")
-                st.markdown("- 🧠 Chain-of-Thought analysis")
-                st.markdown("- 📊 Results and insights")
-                st.markdown("- 🛡️ Security validation")
-                st.markdown("- ⏱️ Performance metrics")
-        else:
-            st.info("No data available for export. Please run a query first.")
 def process_query(query: str, user_input: str, role_input: str):
     """Process a natural language query"""
     # Initialize components if not already done
@@ -1179,7 +1174,9 @@ def process_query(query: str, user_input: str, role_input: str):
     
     # Process query
     with st.spinner("🔄 Processing.... please wait"):
-        sql, results, summary, timing_summary = simulate_agent_workflow_with_cot(query, timing_tracker, cot_workflow)
+        sql, results, summary, timing_summary = simulate_agent_workflow_with_cot(
+            query, timing_tracker, cot_workflow, user=user_input, ip_address="127.0.0.1"
+        )
     
     # Apply security guards
     security_guard = SecurityGuard()
@@ -1194,13 +1191,13 @@ def process_query(query: str, user_input: str, role_input: str):
     st.session_state.last_summary = summary
     st.session_state.last_cot_workflow = cot_workflow
     
-    # Add to query history
-    if 'query_history' in st.session_state:
-        query_history = st.session_state.query_history
-    else:
-        query_history = QueryHistory()
-        st.session_state.query_history = query_history
+    # Store validation details and security events from pipeline
+    # Note: This will be populated when the pipeline returns detailed validation info
+    st.session_state.last_validation_details = {}
+    st.session_state.last_security_events = []
     
+    # Add to query history
+    query_history = QueryHistory()
     query_history.add_query(
         query=query,
         sql=guard_result.get('sql', sql),
@@ -1211,39 +1208,101 @@ def process_query(query: str, user_input: str, role_input: str):
     # Trigger UI update
     st.rerun()
 
-def main():
-    """Main application function"""
-    # Header with GIF and title
-    col1, col2, col3 = st.columns([1, 2, 1])
+def render_security_guard_results(validation_details: Dict[str, Any], security_events: List[Dict[str, Any]]):
+    """Render security guard results in the UI"""
+    st.markdown("#### 🛡️ Security Guard Results")
+    
+    # Create columns for security information
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.write("")  # Empty space for centering
+        st.markdown("**🔍 Validation Details**")
+        
+        # Validation step
+        validation_step = validation_details.get("validation_step", "unknown")
+        step_icon = "✅" if validation_step == "complete" else "⚠️"
+        st.write(f"{step_icon} **Step:** {validation_step}")
+        
+        # Security action
+        security_action = validation_details.get("security_action", "UNKNOWN")
+        action_color = {
+            "ALLOWED": "green",
+            "BLOCKED": "red", 
+            "FLAGGED": "orange",
+            "UNKNOWN": "gray"
+        }.get(security_action, "gray")
+        
+        st.markdown(f"**🛡️ Action:** :{action_color}[{security_action}]")
+        
+        # Syntax validation
+        syntax_valid = validation_details.get("syntax_valid", False)
+        st.write(f"{'✅' if syntax_valid else '❌'} **Syntax:** {'Valid' if syntax_valid else 'Invalid'}")
+        
+        # Schema validation
+        schema_valid = validation_details.get("schema_valid", False)
+        st.write(f"{'✅' if schema_valid else '❌'} **Schema:** {'Valid' if schema_valid else 'Invalid'}")
+        
+        # Performance warning
+        performance_warning = validation_details.get("performance_warning")
+        if performance_warning:
+            st.warning(f"⚠️ **Performance:** {performance_warning}")
     
     with col2:
-        # Display the GIF
-        st.image("docs/animated_stagecoach_right_legmotion.gif", width=200)
+        st.markdown("**🚨 Recent Security Events**")
         
-        # Title with styling
-        st.markdown("""
-        <div style="text-align: center; margin-top: 10px;">
-            <h1 style="color: #FF6B35; font-size: 2.5em; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
-                Wells Aug HackAThon NL 2 SQL DataInsight
-            </h1>
-        </div>
-        """, unsafe_allow_html=True)
+        if security_events:
+            for i, event in enumerate(security_events[:5]):  # Show last 5 events
+                event_type = event.get("event_type", "unknown")
+                threat_level = event.get("threat_level", "LOW")
+                action_taken = event.get("action_taken", "LOGGED")
+                timestamp = event.get("timestamp", "unknown")
+                
+                # Color coding for threat levels
+                threat_color = {
+                    "HIGH": "red",
+                    "MEDIUM": "orange", 
+                    "LOW": "green"
+                }.get(threat_level, "gray")
+                
+                st.markdown(f"""
+                **Event {i+1}:**
+                - **Type:** {event_type}
+                - **Threat:** :{threat_color}[{threat_level}]
+                - **Action:** {action_taken}
+                - **Time:** {timestamp}
+                """)
+        else:
+            st.info("No recent security events")
+
+def main():
+    """Main application function"""
+    # Initialize Enter key tracking
+    if 'enter_pressed' not in st.session_state:
+        st.session_state.enter_pressed = False
     
-    with col3:
-        st.write("")  # Empty space for centering
+    # Header with centered title
+    # Header with centered title
+    st.markdown("""
+    <div style="text-align: center; margin: 20px 0;">
+        <h1 style="color: #FF6B35; font-size: 2.5em; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+            Wells Aug HackAThon NL 2 SQL DataInsight
+        </h1>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("**Natural Language to SQL with Retrieval-Augmented Generation**")
     
     # Initialize components
-    if 'security_guard' not in st.session_state:
-        st.session_state.security_guard = SecurityGuard()
-    if 'query_history' not in st.session_state:
-        st.session_state.query_history = QueryHistory()
-    if 'timing_tracker' not in st.session_state:
-        st.session_state.timing_tracker = TimingTracker()
+    # Initialize enhanced components in session state
+if 'query_history' not in st.session_state:
+    st.session_state.query_history = QueryHistory()
+if 'timing_tracker' not in st.session_state:
+    st.session_state.timing_tracker = TimingTracker()
+if 'security_guard' not in st.session_state:
+    st.session_state.security_guard = SecurityGuard()
+    
+    # Initialize query history
+    QueryHistory()
     
     # Sidebar
     with st.sidebar:
@@ -1256,7 +1315,7 @@ def main():
         st.markdown("### 🎭 Role Selection")
         selected_role = st.selectbox(
             "Choose your role:",
-            ["Analyst", "Developer", "Business User"],
+            ["Developer", "Business User"],
             key="role_selector"
         )
         
@@ -1265,8 +1324,6 @@ def main():
             st.info("👨‍💻 **Developer View**: Tech Stack, Agent Flow, Detailed Analysis")
         elif selected_role == "Business User":
             st.info("👔 **Business View**: Simple Results, Health Status, Feedback")
-        else:
-            st.info("📊 **Analyst View**: Standard Analysis & Export")
         
         # Show tech stack only for Developer role
         if selected_role == "Developer":
@@ -1278,8 +1335,6 @@ def main():
         render_developer_ui()
     elif selected_role == "Business User":
         render_business_user_ui()
-    else:
-        render_analyst_ui()
 
 if __name__ == "__main__":
     main()

@@ -15,7 +15,7 @@ import logging
 sys.path.append('./backend')
 
 from tests.integration_tests import run_integration_tests
-from system_initializer import run_system_initialization
+from backend.system_initializer import run_system_initialization
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,11 @@ class BackendTestRunner:
             
             # Test summarizer
             summarizer = SummarizerAgent()
-            summary = summarizer.summarize_results([{"name": "Test"}], "Test query")
+            test_result = {
+                "success": True,
+                "results": [{"name": "Test"}]
+            }
+            summary = summarizer.summarize("Test query", test_result)
             
             if plan and is_safe and result.get("success") and summary:
                 return {

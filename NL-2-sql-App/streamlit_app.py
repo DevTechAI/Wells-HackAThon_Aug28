@@ -17,7 +17,7 @@ import math
 # Add backend to path
 sys.path.append('./backend')
 
-from system_initializer import SystemInitializer
+from backend.system_initializer import SystemInitializer
 from backend.llm_config import llm_config
 from backend.validator import ValidatorAgent
 from backend.db_manager import get_db_manager
@@ -979,7 +979,13 @@ def main():
     timing_tracker = TimingTracker()
     
     # Header
-    st.title("🔍 Local NL → SQL (Offline)")
+    st.markdown("""
+    <div style="text-align: center; margin: 20px 0;">
+        <h1 style="color: #FF6B35; font-size: 2.5em; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+            Wells Aug HackAThon NL 2 SQL DataInsight
+        </h1>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("Transform natural language queries into SQL with AI-powered intelligence")
     
     # Sidebar
@@ -1000,7 +1006,7 @@ def main():
         with user_col:
             user = st.text_input("User", value="test_user", key="user_input")
         with role_col:
-            role = selectbox("Role", ["analyst", "manager", "developer", "admin"], key="role_input")
+            role = selectbox("Role", ["developer", "business_user"], key="role_input")
         
         # Query input
         query = st.text_area(

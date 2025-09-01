@@ -42,9 +42,8 @@ class LLMEmbedder:
         """Initialize the appropriate client based on provider"""
         try:
             if self.provider == "openai":
-                import openai
-                openai.api_key = self.api_key
-                self.client = openai
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key)
                 logger.info("✅ OpenAI client initialized")
                 
             elif self.provider == "anthropic":
@@ -74,11 +73,11 @@ class LLMEmbedder:
         """Generate embedding for a single text"""
         try:
             if self.provider == "openai":
-                response = self.client.Embedding.create(
+                response = self.client.embeddings.create(
                     input=text,
                     model=self.model_name
                 )
-                return response['data'][0]['embedding']
+                return response.data[0].embedding
                 
             elif self.provider == "anthropic":
                 response = self.client.embeddings.create(

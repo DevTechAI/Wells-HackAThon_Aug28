@@ -30,7 +30,8 @@ class NL2SQLPipeline:
         self.schema_tables = schema_tables
         self.cfg = config
 
-    def run(self, nl_query: str, clarified_values: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def run(self, nl_query: str, clarified_values: Optional[Dict[str, Any]] = None, 
+            user: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
         print(f"\n{'='*60}")
         print(f"🚀 ORCHESTRATOR: Starting pipeline execution")
         print(f"📝 Query: {nl_query}")
@@ -177,9 +178,12 @@ class NL2SQLPipeline:
             print(f"🔍 INPUT to VALIDATOR: sql='{sql[:100]}{'...' if len(sql) > 100 else ''}'")
             print(f"🔍 INPUT to VALIDATOR: schema_tables={list(self.schema_tables.keys())}")
             t3 = time.time()
-            ok, reason = self.validator.is_safe(sql, self.schema_tables)
+            ok, reason = self.validator.is_safe(sql, self.schema_tables, user, ip_address)
             diag.timings_ms.setdefault("validation", 0)
             diag.timings_ms["validation"] += int((time.time() - t3) * 1000)
+            
+            # Get detailed validation report including security guard info
+            validation_report = self.validator.get_validation_report(sql, user, ip_address)
             
             # Log validator output
             validator_output = {
@@ -187,12 +191,16 @@ class NL2SQLPipeline:
                 "attempt": attempts + 1,
                 "input": {
                     "sql": sql,
-                    "schema_tables": list(self.schema_tables.keys())
+                    "schema_tables": list(self.schema_tables.keys()),
+                    "user": user,
+                    "ip_address": ip_address
                 },
                 "output": {
                     "is_safe": ok,
                     "reason": reason,
-                    "validation_passed": ok
+                    "validation_passed": ok,
+                    "validation_details": validation_report.get("details", {}),
+                    "security_events": validation_report.get("security_events", [])
                 },
                 "timing_ms": diag.timings_ms["validation"]
             }

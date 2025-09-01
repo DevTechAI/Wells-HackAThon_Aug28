@@ -21,7 +21,7 @@ class LLMSQLGenerator:
     """
     
     def __init__(self, provider: str = "openai", api_key: Optional[str] = None,
-                 model_name: str = "gpt-4", temperature: float = 0.1):
+                 model_name: str = "gpt-4o-mini", temperature: float = 0.1):
         """
         Initialize SQL generator with specified provider
         
@@ -46,9 +46,8 @@ class LLMSQLGenerator:
         """Initialize the appropriate client based on provider"""
         try:
             if self.provider == "openai":
-                import openai
-                openai.api_key = self.api_key
-                self.client = openai
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key)
                 logger.info("✅ OpenAI client initialized")
                 
             elif self.provider == "anthropic":
@@ -91,7 +90,7 @@ class LLMSQLGenerator:
         def llm_call():
             try:
                 if self.provider == "openai":
-                    response = self.client.ChatCompletion.create(
+                    response = self.client.chat.completions.create(
                         model=self.model_name,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,

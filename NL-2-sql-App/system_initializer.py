@@ -240,11 +240,11 @@ class SystemInitializer:
             else:
                 # Test LLM connectivity
                 if provider == "openai":
-                    import openai
-                    openai.api_key = api_key
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
                     start_time = time.time()
-                    response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
                         messages=[{"role": "user", "content": "Hello"}],
                         max_tokens=5
                     )
@@ -253,7 +253,7 @@ class SystemInitializer:
                     if response.choices[0].message.content:
                         component.status = "passed"
                         component.message = f"OpenAI connectivity test passed ({end_time - start_time:.3f}s)"
-                        component.details = {"provider": provider, "model": "gpt-3.5-turbo", "response_time": end_time - start_time}
+                        component.details = {"provider": provider, "model": "gpt-4o-mini", "response_time": end_time - start_time}
                     else:
                         component.status = "failed"
                         component.message = "OpenAI not responding"
@@ -361,10 +361,10 @@ class SystemInitializer:
             
             # Test Retriever Agent
             try:
-                retriever = EnhancedRetriever("./chroma_db")
-                test_context = retriever.retrieve_context("Find customer information")
+                retriever = EnhancedRetriever("openai", None, "text-embedding-3-small", "./chroma_db")
+                test_context = retriever.retrieve_context_with_details("Find customer information")
                 
-                if test_context:
+                if test_context and test_context.get("schema_context"):
                     agent_results["retriever"] = {"status": "passed", "context_items": len(test_context.get("schema_context", []))}
                 else:
                     agent_results["retriever"] = {"status": "failed", "reason": "No context returned"}
@@ -399,10 +399,14 @@ class SystemInitializer:
             # Test Summarizer Agent
             try:
                 summarizer = SummarizerAgent()
-                test_summary = summarizer.summarize_results([{"name": "Test"}], "Test query")
+                test_result = {
+                    "success": True,
+                    "results": [{"name": "Test"}]
+                }
+                test_summary = summarizer.summarize("Test query", test_result)
                 
-                if test_summary:
-                    agent_results["summarizer"] = {"status": "passed", "summary_length": len(test_summary)}
+                if test_summary and test_summary.get("summary"):
+                    agent_results["summarizer"] = {"status": "passed", "summary_length": len(test_summary.get("summary", ""))}
                 else:
                     agent_results["summarizer"] = {"status": "failed", "reason": "No summary generated"}
             except Exception as e:

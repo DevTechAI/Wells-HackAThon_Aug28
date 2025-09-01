@@ -40,8 +40,8 @@ class LLMConfig:
             
             # Provider Settings
             "default_provider": os.getenv("DEFAULT_LLM_PROVIDER", "openai"),
-            "default_model": os.getenv("DEFAULT_LLM_MODEL", "gpt-4"),
-            "default_embedding_model": os.getenv("DEFAULT_EMBEDDING_MODEL", "text-embedding-ada-002"),
+            "default_model": os.getenv("DEFAULT_LLM_MODEL", "gpt-4o-mini"),
+            "default_embedding_model": os.getenv("DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"),
             
             # Application Settings
             "max_retries": int(os.getenv("MAX_RETRIES", "3")),
