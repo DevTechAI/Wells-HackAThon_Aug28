@@ -31,102 +31,170 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for dark theme and better styling
+# Custom CSS for bright cream/white theme
 st.markdown("""
 <style>
+    /* Bright cream/white background - target all Streamlit elements */
     .main {
-        background-color: #0e1117;
-        color: #fafafa;
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #000000 !important;  /* Black text */
     }
     .stApp {
-        background-color: #0e1117;
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #000000 !important;
     }
     .sidebar .sidebar-content {
-        background-color: #262730;
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
     }
     .security-guard {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 8px 0;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin: 8px 0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     .guard-success {
-        background-color: #065f46;
-        border-color: #10b981;
+        background-color: #f0f9ff !important;
+        border-color: #27ae60 !important;
     }
     .guard-warning {
-        background-color: #92400e;
-        border-color: #f59e0b;
+        background-color: #fff7ed !important;
+        border-color: #f39c12 !important;
     }
     .guard-error {
-        background-color: #991b1b;
-        border-color: #ef4444;
+        background-color: #fef2f2 !important;
+        border-color: #e74c3c !important;
     }
     .recent-query {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 6px;
-        padding: 12px;
-        margin: 8px 0;
-        cursor: pointer;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 6px !important;
+        padding: 12px !important;
+        margin: 8px 0 !important;
+        cursor: pointer !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     .recent-query:hover {
-        background-color: #374151;
+        background-color: #f8f9fa !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
     }
     .tech-stack-item {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 6px;
-        padding: 12px;
-        margin: 8px 0;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 6px !important;
+        padding: 12px !important;
+        margin: 8px 0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     .timing-card {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 8px 0;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin: 8px 0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     .timing-success {
-        border-color: #10b981;
+        border-color: #27ae60 !important;
     }
     .timing-warning {
-        border-color: #f59e0b;
+        border-color: #f39c12 !important;
     }
     .timing-error {
-        border-color: #ef4444;
+        border-color: #e74c3c !important;
     }
     .cot-step {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 8px 0;
-        animation: fadeIn 0.5s ease-in;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        margin: 8px 0 !important;
+        animation: fadeIn 0.5s ease-in !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     .cot-step.active {
-        border-color: #3b82f6;
-        background-color: #1e3a8a;
+        border-color: #3498db !important;
+        background-color: #f0f8ff !important;
     }
     .cot-step.completed {
-        border-color: #10b981;
-        background-color: #065f46;
+        border-color: #27ae60 !important;
+        background-color: #f0f9ff !important;
     }
     .cot-step.error {
-        border-color: #ef4444;
-        background-color: #991b1b;
+        border-color: #e74c3c !important;
+        background-color: #fef2f2 !important;
     }
     .pagination {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        margin: 20px 0;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 10px !important;
+        margin: 20px 0 !important;
     }
     .pagination button {
-        background-color: #374151;
-        border: 1px solid #4b5563;
+        background-color: #3498db !important;
+        border: 1px solid #3498db !important;
+        color: #ffffff !important;
+        padding: 8px 12px !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+    }
+    .pagination button:hover {
+        background-color: #2980b9 !important;
+    }
+    .pagination button.active {
+        background-color: #27ae60 !important;
+        border-color: #27ae60 !important;
+    }
+    .pagination button:disabled {
+        background-color: #bdc3c7 !important;
+        color: #95a5a6 !important;
+        cursor: not-allowed !important;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .query-time {
+        font-size: 0.8em !important;
+        color: #7f8c8d !important;
+    }
+    .user-role {
+        font-size: 0.9em !important;
+        color: #2c3e50 !important;
+    }
+    .agent-timing {
+        font-family: 'Courier New', monospace !important;
+        font-size: 0.9em !important;
+        background-color: #f8f9fa !important;
+        padding: 8px !important;
+        border-radius: 4px !important;
+        margin: 4px 0 !important;
+        border: 1px solid #e0e0e0 !important;
+    }
+    .llm-interaction {
+        background-color: #f0f8ff !important;
+        border-color: #3498db !important;
+    }
+    .vectordb-interaction {
+        background-color: #fff7ed !important;
+        border-color: #f39c12 !important;
+    }
+    .database-interaction {
+        background-color: #f0f9ff !important;
+        border-color: #27ae60 !important;
+    }
+    
+    /* Override any dark theme styles */
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    }
+</style>
+""", unsafe_allow_html=True)
         color: #f9fafb;
         padding: 8px 12px;
         border-radius: 4px;
@@ -571,7 +639,7 @@ def render_paginated_results(results: List[Dict[str, Any]], page_size: int = 10)
     
     # Convert to DataFrame and display
     df = pd.DataFrame(current_data)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
     
     # Pagination controls
     if pagination.total_pages > 1:
@@ -653,7 +721,7 @@ def render_detailed_timing_dashboard(timing_summary: Dict[str, Any]):
             })
         
         agent_df = pd.DataFrame(agent_data)
-        st.dataframe(agent_df, use_container_width=True)
+        st.dataframe(agent_df, width="stretch")
     
     # LLM interactions
     if timing_summary['llm_interactions']:

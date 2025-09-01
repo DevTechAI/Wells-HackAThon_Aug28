@@ -320,7 +320,7 @@ def check_gemini_health(api_key: str, db_connection=None) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Test the Gemini health checker
-    api_key = os.getenv("GOOGLE_AI_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY")
     
     if api_key:
         print("🔍 Testing Gemini health checker...")
@@ -332,4 +332,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Gemini health check failed: {e}")
     else:
-        print("❌ GOOGLE_AI_API_KEY not found in environment variables")
+        print("❌ GOOGLE_API_KEY not found in environment variables")

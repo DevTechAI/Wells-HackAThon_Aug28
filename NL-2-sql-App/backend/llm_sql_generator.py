@@ -138,6 +138,10 @@ class LLMSQLGenerator:
         
         return llm_call()
     
+    def generate(self, nl_query: str, clarified_values: Dict, gen_ctx: Dict, schema_tables: Dict) -> str:
+        """Generate SQL from natural language query - alias for generate_sql for compatibility"""
+        return self.generate_sql(nl_query, gen_ctx)
+    
     def generate_sql(self, nl_query: str, gen_ctx: Dict[str, Any]) -> str:
         """Generate SQL from natural language query"""
         logger.info(f"🔧 LLM SQL Generator: Starting SQL generation for query: {nl_query}")

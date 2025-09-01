@@ -42,15 +42,15 @@ class IntegrationTestRunner:
             
             # Test OpenAI import
             try:
-                import openai
-                openai.api_key = api_key
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
             except ImportError:
                 result["details"] = "OpenAI package not installed"
                 return result
             
             # Test simple API call
             try:
-                response = openai.ChatCompletion.create(
+                response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": "Hello"}],
                     max_tokens=5
@@ -150,11 +150,22 @@ class IntegrationTestRunner:
                 persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
                 client = chromadb.PersistentClient(path=persist_dir)
                 
-                # Test collection creation
-                collection = client.create_collection(
-                    name="test_collection",
-                    metadata={"description": "Test collection"}
-                )
+                # Check if test collection already exists
+                collection_name = "test_collection"
+                existing_collections = client.list_collections()
+                collection_exists = any(col.name == collection_name for col in existing_collections)
+                
+                if collection_exists:
+                    # Use existing collection
+                    collection = client.get_collection(name=collection_name)
+                    print(f"ℹ️ Using existing collection: {collection_name}")
+                else:
+                    # Create new collection
+                    collection = client.create_collection(
+                        name=collection_name,
+                        metadata={"description": "Test collection"}
+                    )
+                    print(f"✅ Created new collection: {collection_name}")
                 
                 # Test embedding
                 collection.add(

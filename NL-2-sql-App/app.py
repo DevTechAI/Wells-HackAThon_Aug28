@@ -39,197 +39,334 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for enhanced UI
+# Updated CSS for bright cream/white theme
 st.markdown("""
 <style>
-    /* Process query button styling */
-    .stButton > button {
-        background-color: #4CAF50 !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 12px 24px !important;
+    /* Bright cream/white background - target all Streamlit elements */
+    .main {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #000000 !important;  /* Black text */
+    }
+    
+    /* Target Streamlit app container */
+    .stApp {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #000000 !important;
+    }
+    
+    /* Target Streamlit main content area */
+    .main .block-container {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #000000 !important;
+        padding-top: 1rem !important;
+    }
+    
+    /* Target Streamlit sidebar */
+    .css-1d391kg, .css-1lcbmhc {
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    }
+    
+    /* Target all Streamlit text elements */
+    .stMarkdown, .stText, .stWrite {
+        color: #000000 !important;
+    }
+    
+    /* Target Streamlit form labels for better visibility */
+    .stTextArea label, .stTextInput label, .stSelectbox label {
+        color: #000000 !important;
+        font-weight: 600 !important;
         font-size: 16px !important;
+    }
+    
+    /* Make tab names visible with dark lettering */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #ffffff !important;
+        border-bottom: 2px solid #d4d1cc !important;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: #f8f7f4 !important;
+        color: #000000 !important;
+        border: 1px solid #d4d1cc !important;
+        border-bottom: none !important;
+        border-radius: 8px 8px 0 0 !important;
+        margin-right: 4px !important;
+        padding: 8px 16px !important;
+        font-weight: 600 !important;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #e8e6e3 !important;
+        color: #000000 !important;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border-bottom: 2px solid #ffffff !important;
         font-weight: bold !important;
+    }
+    
+    /* Input boxes with subtle styling */
+    .stTextArea textarea, .stTextInput input {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 2px solid #d4d4d4 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        border-radius: 6px !important;
+        caret-color: #000000 !important;  /* Make cursor visible */
+        padding: 12px !important;
+        font-size: 16px !important;
+    }
+    
+    /* Focus state for input boxes */
+    .stTextArea textarea:focus, .stTextInput input:focus {
+        background-color: #ffffff !important;
+        border-color: #4CAF50 !important;
+        box-shadow: 0 4px 8px rgba(76, 175, 80, 0.15) !important;
+        outline: none !important;
+        caret-color: #000000 !important;  /* Ensure cursor is visible on focus */
+    }
+    
+    /* Select boxes with subtle styling */
+    .stSelectbox select {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 2px solid #d4d4d4 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Process query button - narrower width */
+    .stButton > button {
+        background-color: #f8f9fa !important;  /* Whitish background */
+        color: #000000 !important;  /* Black text */
+        border: 2px solid #d4d1cc !important;  /* Light border */
+        border-radius: 8px !important;
+        padding: 12px 20px !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;  /* Slightly less bold */
         transition: all 0.3s ease !important;
-        width: 200px !important;  /* Smaller width */
-        margin: 0 auto !important;  /* Center the button */
+        width: 150px !important;  /* Narrower width */
+        margin: 0 auto !important;
         display: block !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;  /* Subtle shadow */
     }
     
     .stButton > button:hover {
-        background-color: #45a049 !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+        background-color: #e8e6e3 !important;  /* Slightly darker on hover */
+        color: #000000 !important;  /* Black text */
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
     }
     
-    /* Brighter background */
-    .main {
-        background-color: #f8f9fa !important;  /* Light gray background */
-        color: #333333 !important;  /* Darker text */
+    .stButton > button:active {
+        background-color: #2c3e50 !important;  /* Dark background when clicked */
+        color: #ffffff !important;  /* White text when clicked */
+        transform: translateY(0) !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
     }
     
-    /* Brighter sidebar */
-    .css-1d391kg {
+    /* Card styling for bright theme */
+    .security-guard, .recent-query, .tech-stack, .timing-card, .cot-step, .init-status {
         background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        margin: 8px 0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     
-    /* Brighter text areas and inputs */
-    .stTextArea textarea, .stTextInput input {
-        background-color: #ffffff !important;
-        color: #333333 !important;
-        border: 2px solid #e0e0e0 !important;
+    /* Hover effects for cards */
+    .recent-query:hover, .tech-stack:hover, .timing-card:hover {
+        background-color: #f8f9fa !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
     }
     
-    /* Dark theme styling */
-    .main {
-        background-color: #0e1117;
-        color: #fafafa;
-    }
+    /* Status colors for bright theme */
+    .status-icon.passed { color: #27ae60; }
+    .status-icon.failed { color: #e74c3c; }
+    .status-icon.error { color: #f39c12; }
+    .status-icon.pending { color: #95a5a6; }
+    .status-icon.running { color: #3498db; }
     
-    /* Security guards styling */
-    .security-guard {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 12px;
-        margin: 8px 0;
-    }
-    
+    /* Security guard status colors */
     .security-guard.passed {
-        border-left: 4px solid #00ff00;
+        border-left: 4px solid #27ae60 !important;
     }
     
     .security-guard.failed {
-        border-left: 4px solid #ff0000;
+        border-left: 4px solid #e74c3c !important;
     }
     
     .security-guard.warning {
-        border-left: 4px solid #ffaa00;
+        border-left: 4px solid #f39c12 !important;
     }
     
-    /* Recent queries styling */
-    .recent-query {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 6px;
-        padding: 10px;
-        margin: 6px 0;
-        cursor: pointer;
+    /* Developer View text styling - darker and bold */
+    .developer-view-info {
+        color: #000000 !important;  /* Black color */
+        font-weight: bold !important;
+        font-size: 18px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
     }
     
-    .recent-query:hover {
-        background-color: #2a2a2a;
+    /* Business View text styling */
+    .business-view-info {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
     }
     
-    /* Tech stack styling */
-    .tech-stack {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 12px 0;
+    /* Dark text for info messages on light background */
+    .info-message-dark {
+        color: #000000 !important;  /* Black color for better visibility */
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     
-    .tech-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 0;
-        border-bottom: 1px solid #333;
+    /* Dark text for test results and metrics */
+    .test-results-dark {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
     }
     
-    .tech-item:last-child {
-        border-bottom: none;
+    /* Dark text for section headers */
+    .section-header-dark {
+        color: #000000 !important;
+        font-weight: bold !important;
+        font-size: 18px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
     }
     
-    /* Timing dashboard styling */
-    .timing-card {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 8px 0;
+    /* Dark text for form labels */
+    .form-label-dark {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     
-    .timing-metric {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 4px 0;
+    /* Target Streamlit form labels specifically */
+    .stTextArea label, .stTextInput label, .stSelectbox label {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     
-    /* CoT steps styling */
-    .cot-step {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 6px;
-        padding: 12px;
-        margin: 8px 0;
-        border-left: 4px solid #007acc;
+    /* Dark text for sidebar elements */
+    .sidebar .stMarkdown, .sidebar .stText, .sidebar .stWrite {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
     }
     
-    .cot-step.completed {
-        border-left-color: #00ff00;
+    /* Dark text for sidebar headers */
+    .sidebar h3, .sidebar h4, .sidebar h5 {
+        color: #000000 !important;
+        font-weight: bold !important;
+        font-size: 16px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Dark text for sidebar expanders and query entries */
+    .sidebar .streamlit-expanderHeader, .sidebar .streamlit-expanderContent {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+    
+    /* Dark text for sidebar info messages */
+    .sidebar .stAlert {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+    
+    /* Target all sidebar content with dark text */
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] .stText,
+    [data-testid="stSidebar"] .stWrite,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5 {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    }
+    
+    /* Dark text for sidebar expander headers */
+    [data-testid="stSidebar"] .streamlit-expanderHeader {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        background-color: #f8f7f4 !important;
+        border: 1px solid #d4d1cc !important;
+    }
+    
+    /* Dark text for sidebar expander content */
+    [data-testid="stSidebar"] .streamlit-expanderContent {
+        color: #1a252f !important;
+        font-weight: 500 !important;
+        font-size: 13px !important;
+    }
+    
+    /* Dark text for form labels and input labels */
+    .form-label-dark {
+        color: #1a252f !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    }
+    
+    /* Target Streamlit text area and input labels */
+    .stTextArea label, .stTextInput label, .stSelectbox label {
+        color: #1a252f !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
     }
     
     .cot-step.error {
-        border-left-color: #ff0000;
+        border-left-color: #e74c3c !important;
     }
     
-    /* Pagination styling */
-    .pagination {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        margin: 16px 0;
-    }
-    
+    /* Pagination styling for bright theme */
     .pagination button {
-        background-color: #007acc;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
+        background-color: #3498db !important;
+        color: white !important;
+        border: none !important;
+        padding: 8px 16px !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
     }
     
     .pagination button:disabled {
-        background-color: #555;
-        cursor: not-allowed;
+        background-color: #bdc3c7 !important;
+        cursor: not-allowed !important;
     }
     
-    /* Initialization status styling */
-    .init-status {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 12px 0;
+    /* Remove top margin to move elements up */
+    .main .block-container {
+        padding-top: 1rem !important;
     }
     
-    .init-component {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 0;
-        border-bottom: 1px solid #333;
+    /* Move title up more */
+    .main h1 {
+        margin-top: -60px !important;
     }
     
-    .init-component:last-child {
-        border-bottom: none;
+    /* Override any dark theme styles */
+    [data-testid="stAppViewContainer"] {
+        background-color: #faf8f3 !important;
     }
     
-    .status-icon {
-        font-size: 18px;
+    [data-testid="stSidebar"] {
+        background-color: #f5f5f0 !important;
     }
-    
-    .status-icon.passed { color: #00ff00; }
-    .status-icon.failed { color: #ff0000; }
-    .status-icon.error { color: #ffaa00; }
-    .status-icon.pending { color: #888888; }
-    .status-icon.running { color: #007acc; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -686,7 +823,7 @@ def render_paginated_results(results: List[Dict[str, Any]], pagination_manager: 
     current_data = pagination_manager.get_current_page_data()
     
     if current_data:
-        st.dataframe(current_data, use_container_width=True)
+        st.dataframe(current_data, width='stretch')
     
     # Pagination controls
     if pagination_manager.total_pages > 1:
@@ -1016,7 +1153,7 @@ def create_query_input_with_enter_support(label, placeholder, key, role_type):
     
     return query_input
 
-def render_developer_ui():
+def render_developer_ui(selected_role):
     """Render UI for Developer role"""
     st.markdown("### 👨‍💻 Developer View")
     
@@ -1036,7 +1173,9 @@ def render_developer_ui():
             user_input = st.text_input("👤 Your Name:", value="John", placeholder="Enter your name", key="user_input")
         
         with col2:
-            role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
+            # Role is now handled in main content area
+            st.markdown("🎭 **Role:** Developer")
+            role_input = "Developer"
         
         # Query input with Enter key handling
         query_input = st.text_area(
@@ -1046,33 +1185,40 @@ def render_developer_ui():
             key="query_input_dev"
         )
         
-        # Process button with light color
-        if st.button("🚀 Process Query", use_container_width=True, 
-                    help="Click to process your query"):
+        # Check if Enter was pressed (using session state)
+        if st.session_state.get('enter_pressed', False):
+            st.session_state.enter_pressed = False
             if query_input.strip():
-                process_query(query_input, user_input, role_input)
+                process_query(query_input, user_input, selected_role)
             else:
                 st.warning("Please enter a query")
         
-        # Handle Enter key press using JavaScript
-        st.markdown("""
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const textarea = document.querySelector('textarea[data-testid="stTextArea"]');
-            if (textarea) {
-                textarea.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        const button = document.querySelector('button[data-testid="baseButton-primary"]');
-                        if (button) {
-                            button.click();
-                        }
-                    }
-                });
-            }
-        });
-        </script>
-        """, unsafe_allow_html=True)
+        # Process button with light color
+        if st.button("🚀 Process Query", width="stretch", 
+                    help="Click to process your query"):
+            if query_input.strip():
+                process_query(query_input, user_input, selected_role)
+            else:
+                st.warning("Please enter a query")
+        
+        # Handle Enter key press using session state - Improved detection
+        if query_input and st.session_state.get('query_input_dev_previous', '') != query_input:
+            st.session_state.query_input_dev_previous = query_input
+            # Check if Enter was pressed (improved approach)
+            if '\n' in query_input:
+                # User pressed Enter, process the query
+                clean_query = query_input.replace('\n', ' ').strip()
+                if clean_query:
+                    st.session_state.enter_pressed = True
+                    st.session_state.pending_query = clean_query
+                    st.rerun()
+        
+        # Process pending query from Enter key
+        if st.session_state.get('enter_pressed', False) and st.session_state.get('pending_query'):
+            query_to_process = st.session_state.pending_query
+            st.session_state.enter_pressed = False
+            st.session_state.pending_query = None
+            process_query(query_to_process, user_input, selected_role)
     
     with tab2:
         st.markdown("#### 🛠️ Technology Stack")
@@ -1096,7 +1242,7 @@ def render_developer_ui():
                 st.markdown("##### 🧠 Chain-of-Thought Steps")
                 render_cot_workflow(st.session_state.last_cot_workflow)
         else:
-            st.info("No agent flow data available. Please run a query first.")
+            st.markdown('<div class="info-message-dark">No agent flow data available. Please run a query first.</div>', unsafe_allow_html=True)
     
     with tab4:
         st.markdown("#### 📊 Query Results")
@@ -1111,7 +1257,7 @@ def render_developer_ui():
                 pagination_manager = PaginationManager(st.session_state.last_results)
                 render_paginated_results(st.session_state.last_results, pagination_manager)
             else:
-                st.dataframe(st.session_state.last_results, use_container_width=True)
+                st.dataframe(st.session_state.last_results, width='stretch')
         else:
             st.info("No results available. Please run a query first.")
     
@@ -1194,7 +1340,7 @@ def render_developer_ui():
             - **Real-time Debugging** - Live agent flow with JSON inspection
             """)
 
-def render_business_user_ui():
+def render_business_user_ui(selected_role):
     """Render UI for Business User role"""
     st.markdown("### 👔 Business User View")
     
@@ -1211,7 +1357,9 @@ def render_business_user_ui():
             user_input = st.text_input("👤 Your Name:", value="John", placeholder="Enter your name", key="user_input_business")
         
         with col2:
-            role_input = st.selectbox("🎭 Your Role:", ["Developer", "Business User"], key="role_input")
+            # Role is now handled in main content area
+            st.markdown("🎭 **Role:** Business User")
+            role_input = "Business User"
         
         # Query input with Enter key handling
         query_input = st.text_area(
@@ -1221,33 +1369,40 @@ def render_business_user_ui():
             key="query_input_business"
         )
         
-        # Process button with light color
-        if st.button("🚀 Process Query", use_container_width=True, 
-                    help="Click to process your query"):
+        # Check if Enter was pressed (using session state)
+        if st.session_state.get('enter_pressed', False):
+            st.session_state.enter_pressed = False
             if query_input.strip():
-                process_query(query_input, user_input, role_input)
+                process_query(query_input, user_input, selected_role)
             else:
                 st.warning("Please enter a query")
         
-        # Handle Enter key press using JavaScript
-        st.markdown("""
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const textarea = document.querySelector('textarea[data-testid="stTextArea"]');
-            if (textarea) {
-                textarea.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        const button = document.querySelector('button[data-testid="baseButton-primary"]');
-                        if (button) {
-                            button.click();
-                        }
-                    }
-                });
-            }
-        });
-        </script>
-        """, unsafe_allow_html=True)
+        # Process button with light color
+        if st.button("🚀 Process Query", width="stretch", 
+                    help="Click to process your query"):
+            if query_input.strip():
+                process_query(query_input, user_input, selected_role)
+            else:
+                st.warning("Please enter a query")
+        
+        # Handle Enter key press using session state - Improved detection
+        if query_input and st.session_state.get('query_input_business_previous', '') != query_input:
+            st.session_state.query_input_business_previous = query_input
+            # Check if Enter was pressed (improved approach)
+            if '\n' in query_input:
+                # User pressed Enter, process the query
+                clean_query = query_input.replace('\n', ' ').strip()
+                if clean_query:
+                    st.session_state.enter_pressed = True
+                    st.session_state.pending_query = clean_query
+                    st.rerun()
+        
+        # Process pending query from Enter key
+        if st.session_state.get('enter_pressed', False) and st.session_state.get('pending_query'):
+            query_to_process = st.session_state.pending_query
+            st.session_state.enter_pressed = False
+            st.session_state.pending_query = None
+            process_query(query_to_process, user_input, selected_role)
     
     with tab2:
         st.markdown("#### 📊 Query Results")
@@ -1258,7 +1413,7 @@ def render_business_user_ui():
             st.metric("Results", f"{results_count} records")
             
             # Results table
-            st.dataframe(st.session_state.last_results, use_container_width=True)
+            st.dataframe(st.session_state.last_results, width='stretch')
             
             # Summary
             if 'last_summary' in st.session_state:
@@ -1294,67 +1449,273 @@ def render_business_user_ui():
             else:
                 st.warning("Please enter your feedback")
 
-def process_query(query: str, user_input: str, role_input: str):
-    """Process a natural language query"""
-    # Initialize components if not already done
-    if 'system_initialized' not in st.session_state:
-        with st.spinner("🚀 Initializing system..."):
-            init_report = run_system_initialization()
-            st.session_state.system_initialized = True
-            st.session_state.init_report = init_report
+def verify_database_connections():
+    """Verify SQLite and ChromaDB connections before processing queries"""
+    connection_status = {
+        'sqlite': {'status': False, 'message': '', 'details': ''},
+        'chromadb': {'status': False, 'message': '', 'details': ''}
+    }
     
-    # Initialize timing tracker and CoT workflow
-    timing_tracker = TimingTracker()
-    cot_workflow = CoTWorkflow()
+    # Test SQLite connection
+    try:
+        db_path = os.getenv("DB_PATH", "banking.db")
+        db_manager = get_db_manager(db_path)
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # Test basic query
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+        tables = cursor.fetchall()
+        
+        if tables:
+            connection_status['sqlite']['status'] = True
+            connection_status['sqlite']['message'] = f"✅ SQLite connected successfully to {db_path}"
+            connection_status['sqlite']['details'] = f"Found {len(tables)} tables"
+        else:
+            connection_status['sqlite']['status'] = False
+            connection_status['sqlite']['message'] = f"⚠️ SQLite connected but no tables found in {db_path}"
+            connection_status['sqlite']['details'] = "Database may be empty"
+        
+        db_manager.release_connection(conn)
+        
+    except Exception as e:
+        connection_status['sqlite']['status'] = False
+        connection_status['sqlite']['message'] = f"❌ SQLite connection failed"
+        connection_status['sqlite']['details'] = str(e)
     
-    # Process query
-    with st.spinner("🔄 Processing.... please wait"):
-        result = simulate_agent_workflow_with_cot(
-            query, timing_tracker, cot_workflow, user=user_input, ip_address="127.0.0.1"
+    # Test ChromaDB connection
+    try:
+        from backend.llm_embedder import ChromaDBManager
+        chroma_manager = ChromaDBManager()
+        
+        # Try to get or create a test collection
+        collection = chroma_manager.get_or_create_collection("test_connection")
+        
+        # Test basic operation
+        collection.add(
+            documents=["test document"],
+            metadatas=[{"source": "test"}],
+            ids=["test_id"]
         )
         
-        # Extract results from the pipeline
-        if len(result) >= 4:
-            sql, results, summary, timing_summary = result
+        # Clean up test data
+        collection.delete(ids=["test_id"])
+        
+        connection_status['chromadb']['status'] = True
+        connection_status['chromadb']['message'] = "✅ ChromaDB connected successfully"
+        connection_status['chromadb']['details'] = "Vector database is operational"
+        
+    except Exception as e:
+        connection_status['chromadb']['status'] = False
+        connection_status['chromadb']['message'] = "❌ ChromaDB connection failed"
+        connection_status['chromadb']['details'] = str(e)
+    
+    return connection_status
+
+def process_query(query: str, user_input: str, role_input: str):
+    """Process a natural language query with comprehensive logging and step-by-step reasoning"""
+    
+    # Create a progress container
+    progress_container = st.container()
+    
+    with progress_container:
+        st.markdown("### 🔄 Query Processing Progress")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Step 1: Verify database connections
+        status_text.text("🔍 Step 1/7: Verifying database connections...")
+        progress_bar.progress(14)
+        
+        # Log start of processing
+        st.info(f"🚀 **Starting Query Processing** - User: {user_input}, Role: {role_input}")
+        st.info(f"📝 **Query:** {query}")
+        
+        # Verify database connections
+        st.info("🔍 **Verifying database connections**")
+        connection_status = verify_database_connections()
+        
+        # Display connection status
+        col1, col2 = st.columns(2)
+        with col1:
+            if connection_status['sqlite']['status']:
+                st.success(connection_status['sqlite']['message'])
+                st.info(f"📊 **SQLite Details:** {connection_status['sqlite']['details']}")
+            else:
+                st.error(connection_status['sqlite']['message'])
+                st.error(f"🔧 **SQLite Error:** {connection_status['sqlite']['details']}")
+        
+        with col2:
+            if connection_status['chromadb']['status']:
+                st.success(connection_status['chromadb']['message'])
+                st.info(f"📊 **ChromaDB Details:** {connection_status['chromadb']['details']}")
+            else:
+                st.error(connection_status['chromadb']['message'])
+                st.error(f"🔧 **ChromaDB Error:** {connection_status['chromadb']['details']}")
+        
+        # Check if both connections are successful
+        if not (connection_status['sqlite']['status'] and connection_status['chromadb']['status']):
+            st.error("❌ **Critical Error:** One or more database connections failed. Cannot proceed with query processing.")
+            status_text.text("❌ Step 1/7: Database connections failed")
+            return
+        
+        st.success("✅ **All database connections verified successfully**")
+        status_text.text("✅ Step 1/7: Database connections verified")
+        
+        # Step 2: System initialization
+        status_text.text("🚀 Step 2/7: Initializing system...")
+        progress_bar.progress(28)
+        
+        # Initialize components if not already done
+        if 'system_initialized' not in st.session_state:
+            status_text.text("⚠️ Step 2/7: System not initialized - Starting initialization...")
+            with st.spinner("🚀 Initializing system..."):
+                try:
+                    init_report = run_system_initialization()
+                    st.session_state.system_initialized = True
+                    st.session_state.init_report = init_report
+                    st.success("✅ **System initialization completed**")
+                    status_text.text("✅ Step 2/7: System initialization completed")
+                except Exception as e:
+                    st.error(f"❌ **System initialization failed:** {str(e)}")
+                    status_text.text("❌ Step 2/7: System initialization failed")
+                    return
         else:
-            # Handle case where pipeline returns a dict
-            sql = result.get("sql", "")
-            results = result.get("results", [])
-            summary = result.get("summary", "")
-            timing_summary = result.get("timing_summary", {})
-    
-    # Apply security guards
-    security_guard = SecurityGuard()
-    guard_result = security_guard.apply_guards(sql)
-    
-    # Store results in session state
-    st.session_state.last_results = results
-    st.session_state.last_guards = guard_result
-    st.session_state.last_query_time = timing_summary.get('total_time', 0)
-    st.session_state.last_sql = guard_result.get('sql', sql)
-    st.session_state.last_timing_summary = timing_summary
-    st.session_state.last_summary = summary
-    st.session_state.last_cot_workflow = cot_workflow
-    
-    # Store debug information from pipeline
-    if hasattr(result, 'get') and isinstance(result, dict):
-        st.session_state.debug_report = result.get("debug_report", {})
-        st.session_state.last_agent_flow = result.get("agent_flow", [])
-        st.session_state.last_generated_sql = result.get("generated_sql", sql)
-        st.session_state.last_validation_details = result.get("validation_details", {})
-        st.session_state.last_security_events = result.get("security_events", [])
-    
-    # Add to query history
-    query_history = QueryHistory()
-    query_history.add_query(
-        query=query,
-        sql=guard_result.get('sql', sql),
-        results_count=len(results),
-        timestamp=datetime.now().strftime("%H:%M:%S")
-    )
-    
-    # Trigger UI update
-    st.rerun()
+            st.success("✅ **System already initialized**")
+            status_text.text("✅ Step 2/7: System already initialized")
+        
+        # Step 3: Initialize timing tracker and CoT workflow
+        status_text.text("⏱️ Step 3/7: Initializing timing tracker and CoT workflow...")
+        progress_bar.progress(42)
+        st.info("⏱️ **Initializing timing tracker and CoT workflow**")
+        timing_tracker = TimingTracker()
+        cot_workflow = CoTWorkflow()
+        status_text.text("✅ Step 3/7: Timing tracker and CoT workflow initialized")
+        
+        # Step 4: Start agent workflow processing
+        status_text.text("🔄 Step 4/7: Starting agent workflow processing...")
+        progress_bar.progress(56)
+        st.info("🔄 **Starting agent workflow processing**")
+        
+        with st.spinner("🔄 Processing.... please wait"):
+            try:
+                result = simulate_agent_workflow_with_cot(
+                    query, timing_tracker, cot_workflow, user=user_input, ip_address="127.0.0.1"
+                )
+                st.success("✅ **Agent workflow completed successfully**")
+                status_text.text("✅ Step 4/7: Agent workflow completed successfully")
+                
+                # Log result structure
+                st.info(f"📋 **Result type:** {type(result)}")
+                if isinstance(result, dict):
+                    st.info(f"🔑 **Result keys:** {list(result.keys())}")
+                elif isinstance(result, (list, tuple)):
+                    st.info(f"📊 **Result length:** {len(result)}")
+                
+            except Exception as e:
+                st.error(f"❌ **Agent workflow failed:** {str(e)}")
+                st.exception(e)
+                status_text.text("❌ Step 4/7: Agent workflow failed")
+                return
+            
+            # Step 5: Extract results from pipeline
+            status_text.text("📊 Step 5/7: Extracting results from pipeline...")
+            progress_bar.progress(70)
+            
+            try:
+                if len(result) >= 4:
+                    sql, results, summary, timing_summary = result
+                    st.success("✅ **Results extracted from tuple/list**")
+                else:
+                    # Handle case where pipeline returns a dict
+                    sql = result.get("sql", "")
+                    results = result.get("results", [])
+                    summary = result.get("summary", "")
+                    timing_summary = result.get("timing_summary", {})
+                    st.success("✅ **Results extracted from dictionary**")
+                
+                # Log extracted data
+                st.info(f"🔍 **Generated SQL:** {sql[:100]}{'...' if len(sql) > 100 else ''}")
+                st.info(f"📊 **Results count:** {len(results)}")
+                st.info(f"📝 **Summary:** {summary[:100]}{'...' if len(summary) > 100 else ''}")
+                status_text.text("✅ Step 5/7: Results extracted successfully")
+                
+            except Exception as e:
+                st.error(f"❌ **Result extraction failed:** {str(e)}")
+                st.exception(e)
+                status_text.text("❌ Step 5/7: Result extraction failed")
+                return
+        
+        # Step 6: Apply security guards
+        status_text.text("🛡️ Step 6/7: Applying security guards...")
+        progress_bar.progress(85)
+        st.info("🛡️ **Applying security guards**")
+        try:
+            security_guard = SecurityGuard()
+            guard_result = security_guard.apply_guards(sql)
+            st.success("✅ **Security guards applied**")
+            st.info(f"🛡️ **Guard result:** {guard_result.get('message', 'No message')}")
+            status_text.text("✅ Step 6/7: Security guards applied")
+        except Exception as e:
+            st.error(f"❌ **Security guard application failed:** {str(e)}")
+            guard_result = {"sql": sql, "guards_applied": {}, "total_guards": 0}
+            status_text.text("❌ Step 6/7: Security guard application failed")
+        
+        # Step 7: Store results and finalize
+        status_text.text("💾 Step 7/7: Storing results and finalizing...")
+        progress_bar.progress(100)
+        
+        # Store results in session state with logging
+        st.info("💾 **Storing results in session state**")
+        try:
+            st.session_state.last_results = results
+            st.session_state.last_guards = guard_result
+            st.session_state.last_query_time = timing_summary.get('total_time', 0)
+            st.session_state.last_sql = guard_result.get('sql', sql)
+            st.session_state.last_timing_summary = timing_summary
+            st.session_state.last_summary = summary
+            st.session_state.last_cot_workflow = cot_workflow
+            st.success("✅ **Results stored in session state**")
+        except Exception as e:
+            st.error(f"❌ **Session state storage failed:** {str(e)}")
+        
+        # Store debug information from pipeline
+        st.info("🔍 **Storing debug information**")
+        try:
+            if hasattr(result, 'get') and isinstance(result, dict):
+                st.session_state.debug_report = result.get("debug_report", {})
+                st.session_state.last_agent_flow = result.get("agent_flow", [])
+                st.session_state.last_generated_sql = result.get("generated_sql", sql)
+                st.session_state.last_validation_details = result.get("validation_details", {})
+                st.session_state.last_security_events = result.get("security_events", [])
+                st.success("✅ **Debug information stored**")
+            else:
+                st.warning("⚠️ **No debug information available**")
+        except Exception as e:
+            st.error(f"❌ **Debug information storage failed:** {str(e)}")
+        
+        # Add to query history with logging
+        st.info("📚 **Adding to query history**")
+        try:
+            query_history = QueryHistory()
+            query_history.add_query(
+                query=query,
+                sql=guard_result.get('sql', sql),
+                results_count=len(results),
+                timestamp=datetime.now().strftime("%H:%M:%S")
+            )
+            st.success("✅ **Query added to history**")
+        except Exception as e:
+            st.error(f"❌ **Query history update failed:** {str(e)}")
+        
+        # Final success message
+        status_text.text("🎉 All steps completed successfully!")
+        st.success("🎉 **Query processing completed successfully!**")
+        st.info(f"⏱️ **Total processing time:** {timing_summary.get('total_time', 0):.2f}s")
+        
+        # Trigger UI update
+        st.info("🔄 **Triggering UI update**")
+        st.rerun()
 
 def render_security_guard_results(validation_details: Dict[str, Any], security_events: List[Dict[str, Any]]):
     """Render security guard results in the UI"""
@@ -1421,42 +1782,6 @@ def render_security_guard_results(validation_details: Dict[str, Any], security_e
                 """)
         else:
             st.info("No recent security events")
-
-def render_dark_mode_toggle():
-    """Render dark mode toggle in top right corner"""
-    # Initialize dark mode state
-    if 'dark_mode' not in st.session_state:
-        st.session_state.dark_mode = False
-    
-    # Create toggle button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col3:
-        if st.button(
-            "🌙 Dark Mode" if not st.session_state.dark_mode else "☀️ Light Mode",
-            key="dark_mode_toggle",
-            help="Toggle dark/light mode"
-        ):
-            st.session_state.dark_mode = not st.session_state.dark_mode
-            st.rerun()
-    
-    # Apply dark mode CSS
-    if st.session_state.dark_mode:
-        st.markdown("""
-        <style>
-        .main {
-            background-color: #0e1117 !important;
-            color: #fafafa !important;
-        }
-        .css-1d391kg {
-            background-color: #1e1e1e !important;
-        }
-        .stTextArea textarea, .stTextInput input {
-            background-color: #2d2d2d !important;
-            color: #fafafa !important;
-            border: 2px solid #444444 !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
 
 def render_agent_debugging_tab():
     """Render comprehensive agent debugging tab"""
@@ -1525,7 +1850,7 @@ def render_agent_debugging_tab():
                 "Output Size": len(str(agent_data.get('output', {})))
             })
         
-        st.dataframe(summary_data, use_container_width=True)
+        st.dataframe(summary_data, width='stretch')
 
 def render_agent_flow_debugger():
     """Render agent flow debugger with detailed JSON views"""
@@ -1651,20 +1976,124 @@ def render_executor_details():
 
 def main():
     """Main application function"""
+    # Force bright theme immediately
+    st.markdown("""
+    <style>
+    /* FORCE BRIGHT THEME - OVERRIDE EVERYTHING */
+    .stApp {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+    }
+    .main {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+    }
+    .main .block-container {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+        padding-top: 1rem !important;
+    }
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    }
+    .css-1d391kg, .css-1lcbmhc {
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    }
+    .stMarkdown, .stText, .stWrite {
+        color: #2c3e50 !important;
+    }
+    
+    /* Make tab names visible with dark lettering */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #ffffff !important;
+        border-bottom: 2px solid #d4d1cc !important;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: #f8f7f4 !important;
+        color: #2c3e50 !important;
+        border: 1px solid #d4d1cc !important;
+        border-bottom: none !important;
+        border-radius: 8px 8px 0 0 !important;
+        margin-right: 4px !important;
+        padding: 8px 16px !important;
+        font-weight: 600 !important;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #e8e6e3 !important;
+        color: #1a252f !important;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #ffffff !important;
+        color: #2c3e50 !important;
+        border-bottom: 2px solid #ffffff !important;
+        font-weight: bold !important;
+    }
+    
+    /* Target header and navigation areas */
+    .stApp > header {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+    }
+    .stApp > div:first-child {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+    }
+    .stApp > div:first-child > div:first-child {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+    }
+    
+    /* Target all possible header elements */
+    header, .stApp header, .stApp > div:first-child, .stApp > div:first-child > div {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+    }
+    
+    /* Target navigation and menu areas */
+    .stApp nav, .stApp .navigation, .stApp .menu {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+    }
+    
+    /* Target specific Streamlit elements that might be dark */
+    .stApp > div, .stApp > div > div, .stApp > div > div > div {
+        background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
+        color: #2c3e50 !important;
+    }
+    
+    /* But allow specific elements to have their own colors */
+    .stButton > button {
+        background-color: #4CAF50 !important;
+        color: white !important;
+    }
+    .stTextArea textarea, .stTextInput input, .stSelectbox select {
+        background-color: #ffffff !important;
+        color: #2c3e50 !important;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    }
+    </style>
+        """, unsafe_allow_html=True)
+    
     # Initialize Enter key tracking
     if 'enter_pressed' not in st.session_state:
         st.session_state.enter_pressed = False
+    if 'pending_query' not in st.session_state:
+        st.session_state.pending_query = None
     
-    # Dark mode toggle
-    render_dark_mode_toggle()
+    # REMOVED: Dark mode toggle - no longer needed
     
-    # Header with centered title and reduced top margin
+    # Header with blood-red title moved up significantly
     st.markdown("""
-    <div style="text-align: center; margin-top: -40px; margin-bottom: 20px;">
-        <h1 style="color: #1f77b4; font-size: 2.5em; font-weight: bold; margin-bottom: 10px;">
+    <div style="text-align: center; margin-top: -100px; margin-bottom: 10px;">
+        <h1 style="color: #8B0000; font-size: 2.8em; font-weight: bold; margin-bottom: 5px; text-shadow: 2px 2px 4px rgba(139,0,0,0.3);">
             WELLS - NL2SQL Data Insighter
         </h1>
-        <p style="color: #666; font-size: 1.1em; margin: 0;">
+        <p style="color: #666; font-size: 1.0em; margin: 0;">
             Natural Language to SQL Query Processing with AI Agents
         </p>
     </div>
@@ -1678,37 +2107,39 @@ def main():
     if 'security_guard' not in st.session_state:
         st.session_state.security_guard = SecurityGuard()
     
-    # Sidebar
+    # Sidebar - REMOVED duplicate role selection
     with st.sidebar:
         st.markdown("### 📋 Navigation")
         
         # Recent queries
         render_recent_queries_sidebar()
         
-        # Role selector
-        st.markdown("### 🎭 Role Selection")
-        selected_role = st.selectbox(
-            "Choose your role:",
-            ["Developer", "Business User"],
-            key="role_selector"
-        )
+        # REMOVED: Role selector from sidebar (duplicate)
+        # REMOVED: Role-specific info from sidebar
         
-        # Show role-specific info
-        if selected_role == "Developer":
-            st.info("👨‍💻 **Developer View**: Tech Stack, Agent Flow, Detailed Analysis")
-        elif selected_role == "Business User":
-            st.info("👔 **Business View**: Simple Results, Health Status, Feedback")
-        
-        # Show tech stack only for Developer role
-        if selected_role == "Developer":
-            st.markdown("### 🛠️ Quick Tech Stack")
-            render_tech_stack_about()
+        # Show tech stack only for Developer role (will be determined by main UI)
+        st.markdown("### 🛠️ Quick Tech Stack")
+        render_tech_stack_about()
+    
+    # Main content area with role selection
+    st.markdown("### 🎭 Role Selection")
+    selected_role = st.selectbox(
+        "Choose your role:",
+        ["Developer", "Business User"],
+        key="role_selector_main"
+    )
+    
+    # Show role-specific info in main area
+    if selected_role == "Developer":
+        st.markdown('<div class="developer-view-info">👨‍💻 Developer View: Tech Stack, Agent Flow, Detailed Analysis</div>', unsafe_allow_html=True)
+    elif selected_role == "Business User":
+        st.markdown('<div class="business-view-info">👔 **Business View**: Simple Results, Health Status, Feedback</div>', unsafe_allow_html=True)
     
     # Render role-based UI
     if selected_role == "Developer":
-        render_developer_ui()
+        render_developer_ui(selected_role)
     elif selected_role == "Business User":
-        render_business_user_ui()
+        render_business_user_ui(selected_role)
 
 if __name__ == "__main__":
     main()

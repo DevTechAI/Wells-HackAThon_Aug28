@@ -125,6 +125,29 @@ class ChromaDBManager:
     def _initialize_client(self):
         """Initialize ChromaDB client"""
         try:
+            # Check if ChromaDB instance already exists for this path
+            import chromadb
+            from chromadb.config import Settings
+            
+            # Try to get existing client first
+            try:
+                # Check if there's already a client for this path
+                existing_client = chromadb.PersistentClient(
+                    path=self.persist_dir,
+                    settings=Settings(
+                        anonymized_telemetry=False,
+                        allow_reset=True
+                    )
+                )
+                # Test the connection
+                collections = existing_client.list_collections()
+                self.client = existing_client
+                logger.info(f"✅ Using existing ChromaDB client with {len(collections)} collections")
+                return
+            except Exception as existing_error:
+                logger.info(f"ℹ️ No existing ChromaDB client found, creating new one: {existing_error}")
+            
+            # Create new client if none exists
             self.client = chromadb.PersistentClient(
                 path=self.persist_dir,
                 settings=Settings(
@@ -135,10 +158,16 @@ class ChromaDBManager:
             logger.info("✅ ChromaDB client initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize ChromaDB client: {e}")
-            raise
+            # Don't raise the error, just log it and continue
+            logger.warning("⚠️ ChromaDB initialization failed, continuing without vector storage")
+            self.client = None
     
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
         """Get or create a collection"""
+        if self.client is None:
+            logger.warning("⚠️ ChromaDB client not available, skipping collection operation")
+            return None
+            
         try:
             collection = self.client.get_or_create_collection(name=name)
             self.collections[name] = collection
@@ -151,23 +180,42 @@ class ChromaDBManager:
     def add_documents(self, collection_name: str, documents: List[str], 
                      metadatas: List[Dict[str, Any]], ids: List[str]):
         """Add documents to collection"""
+        if self.client is None:
+            logger.warning("⚠️ ChromaDB client not available, skipping document addition")
+            return
+            
         try:
             collection = self.get_or_create_collection(collection_name)
-            collection.add(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
-            logger.info(f"✅ Added {len(documents)} documents to collection '{collection_name}'")
+            if collection is None:
+                logger.warning("⚠️ Collection not available, skipping document addition")
+                return
+            # Check if collection is not None before calling add
+            if collection is not None:
+                collection.add(
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                logger.info(f"✅ Added {len(documents)} documents to collection '{collection_name}'")
+            else:
+                logger.warning("⚠️ Collection is None, skipping document addition")
         except Exception as e:
             logger.error(f"❌ Error adding documents to collection '{collection_name}': {e}")
-            raise
+            # Don't raise the error, just log it and continue
+            logger.warning("⚠️ Continuing without adding documents to ChromaDB")
     
     def query(self, collection_name: str, query_texts: List[str], 
               n_results: int = 5) -> Dict[str, Any]:
         """Query collection"""
+        if self.client is None:
+            logger.warning("⚠️ ChromaDB client not available, skipping query")
+            return {"documents": [], "metadatas": [], "distances": []}
+            
         try:
             collection = self.get_or_create_collection(collection_name)
+            if collection is None:
+                logger.warning("⚠️ Collection not available, skipping query")
+                return {"documents": [], "metadatas": [], "distances": []}
             results = collection.query(
                 query_texts=query_texts,
                 n_results=n_results
