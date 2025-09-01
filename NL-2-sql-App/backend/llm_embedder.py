@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 class LLMEmbedder:
     """
-    LLM-neutral embedder that can work with any LLM provider
+    LLM-neutral embedder that can work with any LLM provider with PII protection
     """
     
     def __init__(self, provider: str = "openai", api_key: Optional[str] = None, 
                  model_name: str = "text-embedding-ada-002"):
         """
-        Initialize embedder with specified provider
+        Initialize embedder with specified provider and PII protection
         
         Args:
             provider: LLM provider ('openai', 'anthropic', 'google', 'local')
@@ -35,7 +35,14 @@ class LLMEmbedder:
         self.model_name = model_name
         self.client = None
         
-        logger.info(f"🧠 Initializing LLM Embedder with provider: {provider}")
+        # Initialize security guard for PII protection
+        from security_guard import SecurityGuard
+        self.security_guard = SecurityGuard()
+        
+        # Track PII protection events
+        self.pii_protection_events = []
+        
+        logger.info(f"🧠 Initializing LLM Embedder with provider: {provider} and PII protection")
         self._initialize_client()
     
     def _initialize_client(self):
@@ -70,7 +77,35 @@ class LLMEmbedder:
             raise
     
     def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding for a single text"""
+        """Generate embedding for a single text with PII protection"""
+        # PII Protection: Scan text before sending to external LLM
+        logger.info("🔒 LLM Embedder: Scanning text for PII before embedding generation")
+        pii_findings = self.security_guard.detect_pii(text, "embedding_text")
+        
+        if pii_findings['detected']:
+            logger.warning(f"⚠️ LLM Embedder: PII detected in text - {pii_findings['pii_types']} found")
+            
+            # Log PII protection event
+            self.pii_protection_events.append({
+                'timestamp': time.time(),
+                'pii_types': pii_findings['pii_types'],
+                'risk_level': pii_findings['risk_level'],
+                'context': 'embedding_text',
+                'action': 'sanitized'
+            })
+            
+            # Sanitize text before sending to external LLM
+            sanitized_text, sanitization_report = self.security_guard.sanitize_content_for_embedding(
+                text, "embedding_text"
+            )
+            
+            logger.info(f"🛡️ LLM Embedder: Text sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+            
+            # Use sanitized text for embedding
+            text = sanitized_text
+        else:
+            logger.info("✅ LLM Embedder: No PII detected in text")
+        
         try:
             if self.provider == "openai":
                 response = self.client.embeddings.create(
@@ -103,6 +138,42 @@ class LLMEmbedder:
             logger.error(f"❌ Error generating embedding: {e}")
             raise
     
+    def get_pii_protection_events(self) -> List[Dict[str, Any]]:
+        """Get all PII protection events from embedding generation"""
+        return self.pii_protection_events
+    
+    def get_pii_protection_summary(self) -> Dict[str, Any]:
+        """Get a summary of PII protection events from embedding generation"""
+        if not self.pii_protection_events:
+            return {
+                'total_events': 0,
+                'pii_types': {},
+                'risk_levels': {},
+                'actions_taken': {}
+            }
+        
+        summary = {
+            'total_events': len(self.pii_protection_events),
+            'pii_types': {},
+            'risk_levels': {},
+            'actions_taken': {}
+        }
+        
+        for event in self.pii_protection_events:
+            # Count PII types
+            for pii_type in event.get('pii_types', []):
+                summary['pii_types'][pii_type] = summary['pii_types'].get(pii_type, 0) + 1
+            
+            # Count risk levels
+            risk_level = event.get('risk_level', 'unknown')
+            summary['risk_levels'][risk_level] = summary['risk_levels'].get(risk_level, 0) + 1
+            
+            # Count actions
+            action = event.get('action', 'unknown')
+            summary['actions_taken'][action] = summary['actions_taken'].get(action, 0) + 1
+        
+        return summary
+    
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
         embeddings = []
@@ -123,31 +194,12 @@ class ChromaDBManager:
         self._initialize_client()
     
     def _initialize_client(self):
-        """Initialize ChromaDB client"""
+        """Initialize ChromaDB client with better error handling for existing instances"""
         try:
-            # Check if ChromaDB instance already exists for this path
             import chromadb
             from chromadb.config import Settings
             
-            # Try to get existing client first
-            try:
-                # Check if there's already a client for this path
-                existing_client = chromadb.PersistentClient(
-                    path=self.persist_dir,
-                    settings=Settings(
-                        anonymized_telemetry=False,
-                        allow_reset=True
-                    )
-                )
-                # Test the connection
-                collections = existing_client.list_collections()
-                self.client = existing_client
-                logger.info(f"✅ Using existing ChromaDB client with {len(collections)} collections")
-                return
-            except Exception as existing_error:
-                logger.info(f"ℹ️ No existing ChromaDB client found, creating new one: {existing_error}")
-            
-            # Create new client if none exists
+            # Always try to create a client - ChromaDB handles existing instances gracefully
             self.client = chromadb.PersistentClient(
                 path=self.persist_dir,
                 settings=Settings(
@@ -155,31 +207,72 @@ class ChromaDBManager:
                     allow_reset=True
                 )
             )
-            logger.info("✅ ChromaDB client initialized")
+            
+            # Test the connection by listing collections
+            try:
+                collections = self.client.list_collections()
+                logger.info(f"✅ ChromaDB client initialized successfully with {len(collections)} existing collections")
+                
+                # Log existing collections for debugging
+                for col in collections:
+                    logger.info(f"   📋 Found collection: {col.name} (count: {col.count()})")
+                    
+            except Exception as list_error:
+                logger.warning(f"⚠️ Could not list collections, but client created: {list_error}")
+                logger.info("✅ ChromaDB client initialized (collections may be empty)")
+                
         except Exception as e:
             logger.error(f"❌ Failed to initialize ChromaDB client: {e}")
-            # Don't raise the error, just log it and continue
             logger.warning("⚠️ ChromaDB initialization failed, continuing without vector storage")
             self.client = None
     
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
-        """Get or create a collection"""
+        """Get or create a collection with better error handling"""
         if self.client is None:
             logger.warning("⚠️ ChromaDB client not available, skipping collection operation")
             return None
             
         try:
-            collection = self.client.get_or_create_collection(name=name)
-            self.collections[name] = collection
-            logger.info(f"✅ Collection '{name}' ready")
-            return collection
+            # First try to get existing collection
+            try:
+                collection = self.client.get_collection(name=name)
+                logger.info(f"✅ Using existing collection '{name}'")
+                self.collections[name] = collection
+                return collection
+            except Exception as get_error:
+                logger.info(f"ℹ️ Collection '{name}' not found, creating new one: {get_error}")
+            
+            # If collection doesn't exist, create it
+            try:
+                collection = self.client.create_collection(name=name)
+                logger.info(f"✅ Created new collection '{name}'")
+                self.collections[name] = collection
+                return collection
+            except Exception as create_error:
+                # Handle case where collection was created by another process
+                if "already exists" in str(create_error).lower():
+                    logger.info(f"ℹ️ Collection '{name}' already exists, getting it")
+                    try:
+                        collection = self.client.get_collection(name=name)
+                        logger.info(f"✅ Retrieved existing collection '{name}'")
+                        self.collections[name] = collection
+                        return collection
+                    except Exception as final_error:
+                        logger.error(f"❌ Failed to get collection '{name}' after creation error: {final_error}")
+                        raise
+                else:
+                    logger.error(f"❌ Failed to create collection '{name}': {create_error}")
+                    raise
+                    
         except Exception as e:
-            logger.error(f"❌ Error getting/creating collection '{name}': {e}")
-            raise
+            logger.error(f"❌ Error with collection '{name}': {e}")
+            # Don't raise the error, return None to allow graceful degradation
+            logger.warning(f"⚠️ Continuing without collection '{name}'")
+            return None
     
     def add_documents(self, collection_name: str, documents: List[str], 
                      metadatas: List[Dict[str, Any]], ids: List[str]):
-        """Add documents to collection"""
+        """Add documents to collection with graceful error handling"""
         if self.client is None:
             logger.warning("⚠️ ChromaDB client not available, skipping document addition")
             return
@@ -187,26 +280,31 @@ class ChromaDBManager:
         try:
             collection = self.get_or_create_collection(collection_name)
             if collection is None:
-                logger.warning("⚠️ Collection not available, skipping document addition")
+                logger.warning(f"⚠️ Collection '{collection_name}' not available, skipping document addition")
                 return
+                
             # Check if collection is not None before calling add
             if collection is not None:
-                collection.add(
-                    documents=documents,
-                    metadatas=metadatas,
-                    ids=ids
-                )
-                logger.info(f"✅ Added {len(documents)} documents to collection '{collection_name}'")
+                try:
+                    collection.add(
+                        documents=documents,
+                        metadatas=metadatas,
+                        ids=ids
+                    )
+                    logger.info(f"✅ Added {len(documents)} documents to collection '{collection_name}'")
+                except Exception as add_error:
+                    logger.error(f"❌ Error adding documents to collection '{collection_name}': {add_error}")
+                    logger.warning(f"⚠️ Continuing without adding documents to collection '{collection_name}'")
             else:
-                logger.warning("⚠️ Collection is None, skipping document addition")
+                logger.warning(f"⚠️ Collection '{collection_name}' is None, skipping document addition")
+                
         except Exception as e:
-            logger.error(f"❌ Error adding documents to collection '{collection_name}': {e}")
-            # Don't raise the error, just log it and continue
-            logger.warning("⚠️ Continuing without adding documents to ChromaDB")
+            logger.error(f"❌ Error with collection '{collection_name}': {e}")
+            logger.warning(f"⚠️ Continuing without collection '{collection_name}'")
     
     def query(self, collection_name: str, query_texts: List[str], 
               n_results: int = 5) -> Dict[str, Any]:
-        """Query collection"""
+        """Query collection with graceful error handling"""
         if self.client is None:
             logger.warning("⚠️ ChromaDB client not available, skipping query")
             return {"documents": [], "metadatas": [], "distances": []}
@@ -214,17 +312,25 @@ class ChromaDBManager:
         try:
             collection = self.get_or_create_collection(collection_name)
             if collection is None:
-                logger.warning("⚠️ Collection not available, skipping query")
+                logger.warning(f"⚠️ Collection '{collection_name}' not available, skipping query")
                 return {"documents": [], "metadatas": [], "distances": []}
-            results = collection.query(
-                query_texts=query_texts,
-                n_results=n_results
-            )
-            logger.info(f"✅ Queried collection '{collection_name}' with {len(query_texts)} queries")
-            return results
+                
+            try:
+                results = collection.query(
+                    query_texts=query_texts,
+                    n_results=n_results
+                )
+                logger.info(f"✅ Queried collection '{collection_name}' with {len(query_texts)} queries")
+                return results
+            except Exception as query_error:
+                logger.error(f"❌ Error querying collection '{collection_name}': {query_error}")
+                logger.warning(f"⚠️ Returning empty results for collection '{collection_name}'")
+                return {"documents": [], "metadatas": [], "distances": []}
+                
         except Exception as e:
-            logger.error(f"❌ Error querying collection '{collection_name}': {e}")
-            raise
+            logger.error(f"❌ Error with collection '{collection_name}': {e}")
+            logger.warning(f"⚠️ Returning empty results for collection '{collection_name}'")
+            return {"documents": [], "metadatas": [], "distances": []}
 
 class EnhancedRetriever:
     """

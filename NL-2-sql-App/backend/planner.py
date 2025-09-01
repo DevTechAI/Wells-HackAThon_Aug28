@@ -99,8 +99,143 @@ class PlannerAgent:
         if any(word in query_lower for word in ["maximum", "max", "highest"]):
             operations.append("MAX")
         
-        if any(word in query_lower for word in ["minimum", "min", "lowest"]):
-            operations.append("MIN")
+    def plan_with_schema_metadata(self, query: str, schema_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Plan SQL generation using rich schema metadata and distinct values"""
+        logger.info(f"📋 Planner: Planning with schema metadata for query: {query}")
+        
+        # Extract schema metadata
+        schema_metadata = schema_context.get('schema_metadata', {})
+        distinct_values = schema_context.get('distinct_values', {})
+        where_suggestions = schema_context.get('where_suggestions', {})
+        
+        # Basic query analysis
+        analysis = self.analyze_query(query)
+        
+        # Enhance with schema metadata
+        enhanced_analysis = {
+            **analysis,
+            "schema_metadata": schema_metadata,
+            "distinct_values": distinct_values,
+            "where_suggestions": where_suggestions,
+            "table_details": self._extract_table_details(query, schema_metadata),
+            "column_mappings": self._extract_column_mappings(query, distinct_values),
+            "where_conditions": self._suggest_where_conditions(query, distinct_values),
+            "join_requirements": self._identify_join_requirements(query, schema_metadata),
+            "value_constraints": self._extract_value_constraints(query, distinct_values)
+        }
+        
+        logger.info(f"📋 Planner: Enhanced analysis complete with schema metadata")
+        return enhanced_analysis
+    
+    def _extract_table_details(self, query: str, schema_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract relevant table details for the query"""
+        table_details = {}
+        query_lower = query.lower()
+        
+        for table_name, metadata in schema_metadata.items():
+            if table_name.lower() in query_lower or any(word in query_lower for word in table_name.lower().split('_')):
+                table_details[table_name] = {
+                    'table_name': table_name,
+                    'column_count': metadata.get('column_count', 0),
+                    'has_primary_key': metadata.get('has_primary_key', False),
+                    'distinct_values_count': metadata.get('distinct_values_count', 0),
+                    'value_distributions_count': metadata.get('value_distributions_count', 0)
+                }
+        
+        return table_details
+    
+    def _extract_column_mappings(self, query: str, distinct_values: Dict[str, Dict[str, List[Any]]]) -> Dict[str, List[str]]:
+        """Extract column mappings based on query and distinct values"""
+        column_mappings = {}
+        query_lower = query.lower()
+        
+        for table_name, columns in distinct_values.items():
+            table_columns = []
+            
+            for column_name, values in columns.items():
+                # Check if column name or values are mentioned in query
+                if (column_name.lower() in query_lower or 
+                    any(str(value).lower() in query_lower for value in values[:5])):
+                    table_columns.append(column_name)
+            
+            if table_columns:
+                column_mappings[table_name] = table_columns
+        
+        return column_mappings
+    
+    def _suggest_where_conditions(self, query: str, distinct_values: Dict[str, Dict[str, List[Any]]]) -> List[str]:
+        """Suggest WHERE conditions based on query and distinct values"""
+        where_conditions = []
+        query_lower = query.lower()
+        
+        for table_name, columns in distinct_values.items():
+            for column_name, values in columns.items():
+                # Look for value mentions in query
+                for value in values[:10]:  # Check first 10 values
+                    value_str = str(value).lower()
+                    if value_str in query_lower:
+                        # Generate WHERE condition
+                        if isinstance(value, (int, float)):
+                            where_conditions.append(f"{table_name}.{column_name} = {value}")
+                        else:
+                            where_conditions.append(f"{table_name}.{column_name} = '{value}'")
+        
+        return where_conditions
+    
+    def _identify_join_requirements(self, query: str, schema_metadata: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Identify JOIN requirements based on query and schema"""
+        join_requirements = []
+        query_lower = query.lower()
+        
+        # Common join patterns
+        join_patterns = [
+            ("customer", "account", "customers.id = accounts.customer_id"),
+            ("account", "transaction", "accounts.id = transactions.account_id"),
+            ("employee", "branch", "employees.branch_id = branches.id"),
+            ("customer", "branch", "customers.branch_id = branches.id")
+        ]
+        
+        for pattern in join_patterns:
+            table1, table2, join_condition = pattern
+            if table1 in query_lower and table2 in query_lower:
+                join_requirements.append({
+                    "table1": table1,
+                    "table2": table2,
+                    "join_condition": join_condition,
+                    "join_type": "INNER"
+                })
+        
+        return join_requirements
+    
+    def _extract_value_constraints(self, query: str, distinct_values: Dict[str, Dict[str, List[Any]]]) -> Dict[str, Any]:
+        """Extract value constraints from query"""
+        constraints = {}
+        query_lower = query.lower()
+        
+        for table_name, columns in distinct_values.items():
+            table_constraints = {}
+            
+            for column_name, values in columns.items():
+                column_constraints = []
+                
+                # Look for value mentions
+                for value in values[:5]:
+                    value_str = str(value).lower()
+                    if value_str in query_lower:
+                        column_constraints.append({
+                            "column": column_name,
+                            "value": value,
+                            "operator": "=",
+                            "suggested_condition": f"{column_name} = '{value}'" if isinstance(value, str) else f"{column_name} = {value}"
+                        })
+                
+                if column_constraints:
+                    table_constraints[column_name] = column_constraints
+            
+            if table_constraints:
+                constraints[table_name] = table_constraints
+        
+        return constraints
         
         if any(word in query_lower for word in ["group", "grouped", "by"]):
             operations.append("GROUP BY")
@@ -124,7 +259,8 @@ class PlannerAgent:
         if len(self._identify_tables(query)) > 2:
             complexity_score += 2
         
-        if len(self._identify_operations(query)) > 3:
+        operations = self._identify_operations(query)
+        if operations and len(operations) > 3:
             complexity_score += 2
         
         if any(word in query.lower() for word in ["join", "joined", "with"]):

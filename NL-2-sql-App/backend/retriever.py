@@ -6,7 +6,7 @@ Retrieves relevant schema context using vector search
 
 import logging
 from typing import Dict, Any, List, Optional
-from .llm_embedder import EnhancedRetriever
+from llm_embedder import EnhancedRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,231 @@ class RetrieverAgent:
             logger.error(f"❌ Retriever: Failed to initialize: {e}")
             self.retriever = None
     
+    def retrieve_context_with_schema_metadata(self, query: str, tables: List[str] = None, n_results: int = 5) -> Dict[str, Any]:
+        """Retrieve context with rich schema metadata and distinct values for SQL generation"""
+        logger.info(f"🔍 Retriever: Retrieving rich context for query: {query}")
+        
+        try:
+            if not self.retriever:
+                logger.warning("⚠️ Retriever: Retriever not initialized, returning empty context")
+                return self._get_empty_context()
+            
+            # Retrieve from multiple collections for comprehensive context
+            context = {}
+            
+            # 1. Get database schema context (table structures, distinct values)
+            schema_context = self.retriever.retrieve_context_with_details(
+                query=query,
+                collection_name="database_schema",
+                n_results=n_results
+            )
+            context.update(schema_context)
+            
+            # 2. Get SQL schema context (table definitions)
+            sql_schema_context = self.retriever.retrieve_context_with_details(
+                query=query,
+                collection_name="sql_schema",
+                n_results=3
+            )
+            if sql_schema_context.get('schema_context'):
+                context['sql_schema_context'] = sql_schema_context['schema_context']
+            
+            # 3. Get sample data context (real data examples)
+            sample_data_context = self.retriever.retrieve_context_with_details(
+                query=query,
+                collection_name="sql_sample_data",
+                n_results=3
+            )
+            if sample_data_context.get('schema_context'):
+                context['sample_data_context'] = sample_data_context['schema_context']
+            
+            # 4. Get entity relationships context
+            relationship_context = self.retriever.retrieve_context_with_details(
+                query=query,
+                collection_name="entity_relationships",
+                n_results=3
+            )
+            if relationship_context.get('schema_context'):
+                context['relationship_context'] = relationship_context['schema_context']
+            
+            # Extract and structure schema metadata
+            context['schema_metadata'] = self._extract_schema_metadata(context)
+            
+            # Extract distinct values for WHERE conditions
+            context['distinct_values'] = self._extract_distinct_values(context)
+            
+            # Filter by tables if specified
+            if tables:
+                context = self._filter_context_by_tables(context, tables)
+            
+            logger.info(f"✅ Retriever: Retrieved rich context with {len(context.get('schema_context', []))} schema items")
+            logger.info(f"✅ Retriever: Extracted metadata for {len(context.get('schema_metadata', {}))} tables")
+            logger.info(f"✅ Retriever: Found distinct values for {len(context.get('distinct_values', {}))} columns")
+            
+            return context
+            
+        except Exception as e:
+            logger.error(f"❌ Retriever: Error retrieving rich context: {e}")
+            return self._get_empty_context()
+    
+    def _extract_schema_metadata(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract structured schema metadata from retrieved context"""
+        schema_metadata = {}
+        
+        for item in context.get('schema_context', []):
+            metadata = item.get('metadata', {})
+            table_name = metadata.get('table_name', '')
+            
+            if table_name and table_name not in schema_metadata:
+                schema_metadata[table_name] = {
+                    'table_name': table_name,
+                    'column_count': metadata.get('column_count', 0),
+                    'has_primary_key': metadata.get('has_primary_key', False),
+                    'unique_constraints_count': metadata.get('unique_constraints_count', 0),
+                    'distinct_values_count': metadata.get('distinct_values_count', 0),
+                    'value_distributions_count': metadata.get('value_distributions_count', 0),
+                    'content': item.get('content', ''),
+                    'metadata': metadata
+                }
+        
+        return schema_metadata
+    
+    def _extract_distinct_values(self, context: Dict[str, Any]) -> Dict[str, Dict[str, List[Any]]]:
+        """Extract distinct values for WHERE conditions from retrieved context"""
+        distinct_values = {}
+        
+        for item in context.get('schema_context', []):
+            content = item.get('content', '')
+            metadata = item.get('metadata', {})
+            table_name = metadata.get('table_name', '')
+            
+            if not table_name or not content:
+                continue
+            
+            # Parse distinct values from content
+            table_values = {}
+            
+            # Look for "Distinct Values (for WHERE conditions):" section
+            if "Distinct Values (for WHERE conditions):" in content:
+                lines = content.split('\n')
+                in_distinct_section = False
+                
+                for line in lines:
+                    line = line.strip()
+                    
+                    if "Distinct Values (for WHERE conditions):" in line:
+                        in_distinct_section = True
+                        continue
+                    
+                    if in_distinct_section:
+                        if line.startswith('- ') and ':' in line:
+                            # Parse column and values
+                            parts = line[2:].split(': ', 1)  # Remove "- " and split on first ": "
+                            if len(parts) == 2:
+                                column_name = parts[0].strip()
+                                values_str = parts[1].strip()
+                                
+                                # Parse values (handle lists, ranges, etc.)
+                                try:
+                                    if values_str.startswith('[') and values_str.endswith(']'):
+                                        # Handle list format
+                                        values = eval(values_str)
+                                    elif ',' in values_str:
+                                        # Handle comma-separated values
+                                        values = [v.strip().strip("'\"") for v in values_str.split(',')]
+                                    else:
+                                        # Single value
+                                        values = [values_str.strip("'\"")]
+                                    
+                                    table_values[column_name] = values
+                                except:
+                                    # Fallback: treat as single value
+                                    table_values[column_name] = [values_str]
+                        
+                        elif line.startswith('Value Distributions') or line.startswith('Sample Data'):
+                            # End of distinct values section
+                            break
+            
+            if table_values:
+                distinct_values[table_name] = table_values
+        
+        return distinct_values
+    
+    def get_where_condition_suggestions(self, query: str, table_name: str, column_name: str) -> List[str]:
+        """Get suggested WHERE conditions for a specific table and column"""
+        logger.info(f"🔍 Retriever: Getting WHERE suggestions for {table_name}.{column_name}")
+        
+        try:
+            # Retrieve context for this specific column
+            column_query = f"{table_name} {column_name} values"
+            context = self.retrieve_context_with_schema_metadata(column_query, [table_name], n_results=3)
+            
+            suggestions = []
+            
+            # Get distinct values for this column
+            distinct_values = context.get('distinct_values', {}).get(table_name, {}).get(column_name, [])
+            
+            if distinct_values:
+                # Generate WHERE condition suggestions
+                for value in distinct_values[:5]:  # Limit to 5 suggestions
+                    if isinstance(value, (int, float)):
+                        suggestions.append(f"{column_name} = {value}")
+                        suggestions.append(f"{column_name} > {value}")
+                        suggestions.append(f"{column_name} < {value}")
+                    else:
+                        suggestions.append(f"{column_name} = '{value}'")
+                        suggestions.append(f"{column_name} LIKE '%{value}%'")
+            
+            logger.info(f"✅ Retriever: Generated {len(suggestions)} WHERE suggestions for {table_name}.{column_name}")
+            return suggestions
+            
+        except Exception as e:
+            logger.error(f"❌ Retriever: Error getting WHERE suggestions: {e}")
+            return []
+    
     def retrieve_context(self, query: str, tables: List[str] = None, n_results: int = 5) -> Dict[str, Any]:
+        """Retrieve relevant context for the query (enhanced with schema metadata)"""
+        logger.info(f"🔍 Retriever: Retrieving context for query: {query}")
+        
+        try:
+            # Use the enhanced method for rich context
+            rich_context = self.retrieve_context_with_schema_metadata(query, tables, n_results)
+            
+            # Add WHERE condition suggestions to the context
+            if rich_context.get('distinct_values'):
+                rich_context['where_suggestions'] = self._generate_where_suggestions(rich_context['distinct_values'])
+            
+            logger.info(f"✅ Retriever: Retrieved enhanced context with {len(rich_context.get('schema_context', []))} items")
+            return rich_context
+            
+        except Exception as e:
+            logger.error(f"❌ Retriever: Error retrieving context: {e}")
+            return self._get_empty_context()
+    
+    def _generate_where_suggestions(self, distinct_values: Dict[str, Dict[str, List[Any]]]) -> Dict[str, List[str]]:
+        """Generate WHERE condition suggestions from distinct values"""
+        where_suggestions = {}
+        
+        for table_name, columns in distinct_values.items():
+            table_suggestions = []
+            
+            for column_name, values in columns.items():
+                if not values:
+                    continue
+                
+                # Generate suggestions for each value
+                for value in values[:3]:  # Limit to 3 values per column
+                    if isinstance(value, (int, float)):
+                        table_suggestions.append(f"{column_name} = {value}")
+                        table_suggestions.append(f"{column_name} > {value}")
+                    else:
+                        table_suggestions.append(f"{column_name} = '{value}'")
+                        table_suggestions.append(f"{column_name} LIKE '%{value}%'")
+            
+            if table_suggestions:
+                where_suggestions[table_name] = table_suggestions
+        
+        return where_suggestions
         """Retrieve relevant context for the query"""
         logger.info(f"🔍 Retriever: Retrieving context for query: {query}")
         

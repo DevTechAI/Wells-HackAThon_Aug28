@@ -75,18 +75,25 @@ class NL2SQLPipeline:
             print(f"❓ Clarifications needed: {clar}")
             return {"needs_clarification": True, "clarifications": clar, "diagnostics": diag.__dict__}
 
-        # 2) Retrieve context
+        # 2) Retrieve context with rich schema metadata
         print(f"\n🔄 ORCHESTRATOR: Transferring control to RETRIEVER AGENT")
         print(f"🔍 INPUT to RETRIEVER: query='{nl_query}', schema_tables={list(self.schema_tables.keys())}")
         t1 = time.time()
-        ctx_bundle = self.retriever.retrieve(nl_query, self.schema_tables)
+        
+        # Use enhanced retriever with schema metadata
+        ctx_bundle = self.retriever.retrieve_context_with_schema_metadata(
+            query=nl_query, 
+            tables=diag.chosen_tables,
+            n_results=5
+        )
         diag.timings_ms["retrieval"] = int((time.time() - t1) * 1000)
         
         # Log retriever with debugger
         self.debugger.log_retriever(
             input_data={
                 "query": nl_query,
-                "available_tables": list(self.schema_tables.keys())
+                "available_tables": list(self.schema_tables.keys()),
+                "chosen_tables": diag.chosen_tables
             },
             output_data=ctx_bundle,
             timing_ms=diag.timings_ms["retrieval"]
@@ -94,10 +101,37 @@ class NL2SQLPipeline:
         
         print(f"✅ ORCHESTRATOR: RETRIEVER AGENT returned control")
         print(f"📚 RETRIEVER OUTPUT: Retrieved {len(ctx_bundle.get('schema_context', []))} schema items")
-        print(f"📚 RETRIEVER OUTPUT: Method={ctx_bundle.get('retrieval_method', 'unknown')}")
-        print(f"📚 RETRIEVER OUTPUT: Value hints={len(ctx_bundle.get('value_hints', {}))} items")
-        print(f"📚 RETRIEVER OUTPUT: Exemplars={len(ctx_bundle.get('exemplars', []))} items")
+        print(f"📚 RETRIEVER OUTPUT: Schema metadata for {len(ctx_bundle.get('schema_metadata', {}))} tables")
+        print(f"📚 RETRIEVER OUTPUT: Distinct values for {len(ctx_bundle.get('distinct_values', {}))} tables")
+        print(f"📚 RETRIEVER OUTPUT: WHERE suggestions for {len(ctx_bundle.get('where_suggestions', {}))} tables")
         print(f"⏱️ RETRIEVER timing: {diag.timings_ms['retrieval']}ms")
+        
+        # 3) Enhanced planning with schema metadata
+        print(f"\n🔄 ORCHESTRATOR: Transferring control to PLANNER AGENT (Enhanced)")
+        print(f"📋 INPUT to PLANNER: query='{nl_query}', schema_context=rich_metadata")
+        t2 = time.time()
+        
+        # Use enhanced planner with schema context
+        enhanced_plan = self.planner.plan_with_schema_metadata(nl_query, ctx_bundle)
+        diag.timings_ms["enhanced_planning"] = int((time.time() - t2) * 1000)
+        
+        # Log enhanced planner with debugger
+        self.debugger.log_planner(
+            input_data={
+                "query": nl_query,
+                "schema_context": ctx_bundle
+            },
+            output_data=enhanced_plan,
+            timing_ms=diag.timings_ms["enhanced_planning"]
+        )
+        
+        print(f"✅ ORCHESTRATOR: ENHANCED PLANNER AGENT returned control")
+        print(f"📊 ENHANCED PLANNER OUTPUT: Table details for {len(enhanced_plan.get('table_details', {}))} tables")
+        print(f"📊 ENHANCED PLANNER OUTPUT: Column mappings for {len(enhanced_plan.get('column_mappings', {}))} tables")
+        print(f"📊 ENHANCED PLANNER OUTPUT: WHERE conditions: {len(enhanced_plan.get('where_conditions', []))}")
+        print(f"📊 ENHANCED PLANNER OUTPUT: JOIN requirements: {len(enhanced_plan.get('join_requirements', []))}")
+        print(f"📊 ENHANCED PLANNER OUTPUT: Value constraints for {len(enhanced_plan.get('value_constraints', {}))} tables")
+        print(f"⏱️ ENHANCED PLANNER timing: {diag.timings_ms['enhanced_planning']}ms")
 
         gen_ctx = {
             "schema_context": ctx_bundle.get("schema_context", []),
@@ -107,56 +141,65 @@ class NL2SQLPipeline:
             "clarified_values": clarified_values or {}
         }
 
-        # 3) Generate SQL
-        print(f"\n🔄 ORCHESTRATOR: Transferring control to SQL GENERATOR AGENT")
+        # 4) Generate SQL with enhanced schema context
+        print(f"\n🔄 ORCHESTRATOR: Transferring control to SQL GENERATOR AGENT (Enhanced)")
         print(f"🧠 INPUT to SQL GENERATOR: query='{nl_query}'")
-        print(f"🧠 INPUT to SQL GENERATOR: schema_context_count={len(gen_ctx.get('schema_context', []))}")
-        print(f"🧠 INPUT to SQL GENERATOR: value_hints_count={len(gen_ctx.get('value_hints', []))}")
-        print(f"🧠 INPUT to SQL GENERATOR: exemplars_count={len(gen_ctx.get('exemplars', []))}")
-        print(f"🧠 INPUT to SQL GENERATOR: query_analysis_keys={list(gen_ctx.get('query_analysis', {}).keys())}")
+        print(f"🧠 INPUT to SQL GENERATOR: schema_metadata_count={len(ctx_bundle.get('schema_metadata', {}))}")
+        print(f"🧠 INPUT to SQL GENERATOR: distinct_values_count={len(ctx_bundle.get('distinct_values', {}))}")
+        print(f"🧠 INPUT to SQL GENERATOR: where_suggestions_count={len(ctx_bundle.get('where_suggestions', {}))}")
+        print(f"🧠 INPUT to SQL GENERATOR: enhanced_plan_keys={list(enhanced_plan.keys())}")
         
-        # Show some sample value hints
-        value_hints = gen_ctx.get('value_hints', [])
-        if value_hints:
-            print(f"🎯 SAMPLE VALUE HINTS:")
-            for i, hint in enumerate(value_hints[:3]):  # Show first 3
-                if isinstance(hint, dict):
-                    if 'table' in hint and 'column' in hint:
-                        print(f"  {i+1}. {hint['table']}.{hint['column']}: {hint.get('values', [])[:3]}...")
-                    elif 'type' in hint:
-                        print(f"  {i+1}. {hint['type']}: {hint.get('value', 'N/A')}")
-        t2 = time.time()
-        sql = self.generator.generate(nl_query, {}, gen_ctx, self.schema_tables)
+        # Show sample distinct values and WHERE suggestions
+        distinct_values = ctx_bundle.get('distinct_values', {})
+        if distinct_values:
+            print(f"🎯 SAMPLE DISTINCT VALUES:")
+            for table_name, columns in list(distinct_values.items())[:2]:  # Show first 2 tables
+                for column_name, values in list(columns.items())[:2]:  # Show first 2 columns
+                    print(f"  {table_name}.{column_name}: {values[:3]}...")
+        
+        where_suggestions = ctx_bundle.get('where_suggestions', {})
+        if where_suggestions:
+            print(f"🎯 SAMPLE WHERE SUGGESTIONS:")
+            for table_name, suggestions in list(where_suggestions.items())[:2]:  # Show first 2 tables
+                print(f"  {table_name}: {suggestions[:2]}...")
+        
+        t3 = time.time()
+        
+        # Use enhanced SQL generator with schema context
+        sql = self.generator.generate_sql_with_schema_context(nl_query, ctx_bundle, enhanced_plan)
         diag.generated_sql = sql
-        diag.timings_ms["generation"] = int((time.time() - t2) * 1000)
+        diag.timings_ms["generation"] = int((time.time() - t3) * 1000)
         
-        # Log SQL generator with debugger
+        # Log enhanced SQL generator with debugger
         self.debugger.log_sql_generator(
             input_data={
                 "query": nl_query,
-                "schema_context_count": len(gen_ctx.get('schema_context', [])),
-                "value_hints_count": len(gen_ctx.get('value_hints', {})),
-                "exemplars_count": len(gen_ctx.get('exemplars', []))
+                "schema_metadata_count": len(ctx_bundle.get('schema_metadata', {})),
+                "distinct_values_count": len(ctx_bundle.get('distinct_values', {})),
+                "where_suggestions_count": len(ctx_bundle.get('where_suggestions', {})),
+                "enhanced_plan_keys": list(enhanced_plan.keys())
             },
             output_data={
                 "generated_sql": sql,
-                "used_special_handler": "employee" in nl_query.lower() and "transaction" in nl_query.lower() and "customer" in nl_query.lower(),
-                "used_fallback": "LIMIT 10" in sql and ("SELECT * FROM" in sql)
+                "used_schema_context": len(ctx_bundle.get('schema_metadata', {})) > 0,
+                "used_distinct_values": len(ctx_bundle.get('distinct_values', {})) > 0,
+                "used_where_suggestions": len(ctx_bundle.get('where_suggestions', {})) > 0
             },
             timing_ms=diag.timings_ms["generation"]
         )
         
-        print(f"✅ ORCHESTRATOR: SQL GENERATOR AGENT returned control")
-        print(f"🔧 SQL GENERATOR OUTPUT: SQL='{sql}'")
-        print(f"🔧 SQL GENERATOR OUTPUT: SQL length={len(sql)} characters")
-        print(f"🔧 SQL GENERATOR OUTPUT: Used special handler={sql_generator_output['output']['used_special_handler']}")
-        print(f"🔧 SQL GENERATOR OUTPUT: Used fallback={sql_generator_output['output']['used_fallback']}")
-        print(f"⏱️ SQL GENERATOR timing: {diag.timings_ms['generation']}ms")
+        print(f"✅ ORCHESTRATOR: ENHANCED SQL GENERATOR AGENT returned control")
+        print(f"🔧 ENHANCED SQL GENERATOR OUTPUT: SQL='{sql[:100]}{'...' if len(sql) > 100 else ''}'")
+        print(f"🔧 ENHANCED SQL GENERATOR OUTPUT: SQL length={len(sql)} characters")
+        print(f"🔧 ENHANCED SQL GENERATOR OUTPUT: Used schema context={len(ctx_bundle.get('schema_metadata', {})) > 0}")
+        print(f"🔧 ENHANCED SQL GENERATOR OUTPUT: Used distinct values={len(ctx_bundle.get('distinct_values', {})) > 0}")
+        print(f"🔧 ENHANCED SQL GENERATOR OUTPUT: Used WHERE suggestions={len(ctx_bundle.get('where_suggestions', {})) > 0}")
+        print(f"⏱️ ENHANCED SQL GENERATOR timing: {diag.timings_ms['generation']}ms")
 
         attempts = 0
         last_error = None
         while attempts <= self.cfg.max_retries:
-            # 4) Validate
+            # 5) Validate
             print(f"\n🔄 ORCHESTRATOR: Transferring control to VALIDATOR AGENT (attempt {attempts + 1})")
             print(f"🔍 INPUT to VALIDATOR: sql='{sql[:100]}{'...' if len(sql) > 100 else ''}'")
             print(f"🔍 INPUT to VALIDATOR: schema_tables={list(self.schema_tables.keys())}")

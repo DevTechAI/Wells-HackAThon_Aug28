@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 class LLMSQLGenerator:
     """
-    LLM-neutral SQL generator that can work with any LLM provider
+    LLM-neutral SQL generator that can work with any LLM provider with PII protection
     """
     
     def __init__(self, provider: str = "openai", api_key: Optional[str] = None,
                  model_name: str = "gpt-4o-mini", temperature: float = 0.1):
         """
-        Initialize SQL generator with specified provider
+        Initialize SQL generator with specified provider and PII protection
         
         Args:
             provider: LLM provider ('openai', 'anthropic', 'google', 'local')
@@ -39,7 +39,14 @@ class LLMSQLGenerator:
         self.llm_loaded = False
         self.llm_error = None
         
-        logger.info(f"🧠 Initializing LLM SQL Generator with provider: {provider}")
+        # Initialize security guard for PII protection
+        from security_guard import SecurityGuard
+        self.security_guard = SecurityGuard()
+        
+        # Track PII protection events
+        self.pii_protection_events = []
+        
+        logger.info(f"🧠 Initializing LLM SQL Generator with provider: {provider} and PII protection")
         self._initialize_client()
     
     def _initialize_client(self):
@@ -81,11 +88,175 @@ class LLMSQLGenerator:
             self.llm_error = str(e)
             self.llm_loaded = False
     
+    def generate_sql_with_schema_context(self, query: str, schema_context: Dict[str, Any], 
+                                       planner_analysis: Dict[str, Any]) -> str:
+        """Generate SQL using rich schema context and planner analysis"""
+        logger.info(f"🧠 LLM: Generating SQL with rich schema context for: {query}")
+        
+        try:
+            # Extract schema metadata and distinct values
+            schema_metadata = schema_context.get('schema_metadata', {})
+            distinct_values = schema_context.get('distinct_values', {})
+            where_suggestions = schema_context.get('where_suggestions', {})
+            
+            # Extract planner analysis
+            table_details = planner_analysis.get('table_details', {})
+            column_mappings = planner_analysis.get('column_mappings', {})
+            where_conditions = planner_analysis.get('where_conditions', [])
+            join_requirements = planner_analysis.get('join_requirements', [])
+            value_constraints = planner_analysis.get('value_constraints', {})
+            
+            # Build enhanced prompt with schema context
+            enhanced_prompt = self._build_enhanced_prompt(
+                query=query,
+                schema_metadata=schema_metadata,
+                distinct_values=distinct_values,
+                where_suggestions=where_suggestions,
+                table_details=table_details,
+                column_mappings=column_mappings,
+                where_conditions=where_conditions,
+                join_requirements=join_requirements,
+                value_constraints=value_constraints
+            )
+            
+            # Generate SQL using LLM
+            sql_result = self._call_llm_with_timeout(enhanced_prompt)
+            
+            if sql_result:
+                # Clean and validate the generated SQL
+                cleaned_sql = self._clean_generated_sql(sql_result)
+                logger.info(f"✅ LLM: Generated SQL with schema context: {cleaned_sql[:100]}...")
+                return cleaned_sql
+            else:
+                logger.error("❌ LLM: Failed to generate SQL with schema context")
+                return ""
+                
+        except Exception as e:
+            logger.error(f"❌ LLM: Error generating SQL with schema context: {e}")
+            return ""
+    
+    def _build_enhanced_prompt(self, query: str, schema_metadata: Dict[str, Any], 
+                             distinct_values: Dict[str, Dict[str, List[Any]]], 
+                             where_suggestions: Dict[str, List[str]],
+                             table_details: Dict[str, Any], 
+                             column_mappings: Dict[str, List[str]],
+                             where_conditions: List[str],
+                             join_requirements: List[Dict[str, str]],
+                             value_constraints: Dict[str, Any]) -> str:
+        """Build enhanced prompt with rich schema context"""
+        
+        prompt = f"""
+You are an expert SQL generator for a banking database. Generate precise SQL based on the natural language query and rich schema context.
+
+NATURAL LANGUAGE QUERY:
+{query}
+
+SCHEMA METADATA:
+"""
+        
+        # Add table details
+        for table_name, details in table_details.items():
+            prompt += f"""
+Table: {table_name}
+- Column Count: {details.get('column_count', 0)}
+- Has Primary Key: {details.get('has_primary_key', False)}
+- Distinct Values Available: {details.get('distinct_values_count', 0)}
+- Value Distributions Available: {details.get('value_distributions_count', 0)}
+"""
+        
+        # Add distinct values for WHERE conditions
+        if distinct_values:
+            prompt += "\nDISTINCT VALUES FOR WHERE CONDITIONS:\n"
+            for table_name, columns in distinct_values.items():
+                prompt += f"\nTable: {table_name}\n"
+                for column_name, values in columns.items():
+                    if values:
+                        prompt += f"- {column_name}: {values[:5]}\n"  # Show first 5 values
+        
+        # Add WHERE suggestions
+        if where_suggestions:
+            prompt += "\nWHERE CONDITION SUGGESTIONS:\n"
+            for table_name, suggestions in where_suggestions.items():
+                prompt += f"\nTable: {table_name}\n"
+                for suggestion in suggestions[:5]:  # Show first 5 suggestions
+                    prompt += f"- {suggestion}\n"
+        
+        # Add column mappings
+        if column_mappings:
+            prompt += "\nRELEVANT COLUMNS:\n"
+            for table_name, columns in column_mappings.items():
+                prompt += f"- {table_name}: {', '.join(columns)}\n"
+        
+        # Add WHERE conditions
+        if where_conditions:
+            prompt += "\nSUGGESTED WHERE CONDITIONS:\n"
+            for condition in where_conditions[:5]:  # Show first 5 conditions
+                prompt += f"- {condition}\n"
+        
+        # Add JOIN requirements
+        if join_requirements:
+            prompt += "\nJOIN REQUIREMENTS:\n"
+            for join_req in join_requirements:
+                prompt += f"- {join_req['table1']} JOIN {join_req['table2']} ON {join_req['join_condition']}\n"
+        
+        # Add value constraints
+        if value_constraints:
+            prompt += "\nVALUE CONSTRAINTS:\n"
+            for table_name, constraints in value_constraints.items():
+                prompt += f"\nTable: {table_name}\n"
+                for column_name, column_constraints in constraints.items():
+                    for constraint in column_constraints:
+                        prompt += f"- {constraint['suggested_condition']}\n"
+        
+        prompt += """
+
+INSTRUCTIONS:
+1. Use the exact table and column names from the schema
+2. Use the distinct values provided for precise WHERE conditions
+3. Apply the suggested JOIN conditions when multiple tables are needed
+4. Use the value constraints to filter data accurately
+5. Generate clean, efficient SQL that matches the natural language query
+6. Include proper table aliases for readability
+7. Use appropriate aggregation functions (COUNT, SUM, AVG, etc.)
+
+Generate only the SQL query without any explanation:
+"""
+        
+        return prompt
+    
     def _call_llm_with_timeout(self, prompt: str, timeout_seconds: int = 30) -> Optional[str]:
-        """Call LLM with timeout handling"""
+        """Call LLM with timeout handling and PII protection"""
         if not self.llm_loaded:
             logger.error("❌ LLM not loaded")
             return None
+        
+        # PII Protection: Scan prompt before sending to external LLM
+        logger.info("🔒 LLM: Scanning prompt for PII before external API call")
+        pii_findings = self.security_guard.detect_pii(prompt, "llm_prompt")
+        
+        if pii_findings['detected']:
+            logger.warning(f"⚠️ LLM: PII detected in prompt - {pii_findings['pii_types']} found")
+            
+            # Log PII protection event
+            self.pii_protection_events.append({
+                'timestamp': time.time(),
+                'pii_types': pii_findings['pii_types'],
+                'risk_level': pii_findings['risk_level'],
+                'context': 'llm_prompt',
+                'action': 'sanitized'
+            })
+            
+            # Sanitize prompt before sending to external LLM
+            sanitized_prompt, sanitization_report = self.security_guard.sanitize_content_for_embedding(
+                prompt, "llm_prompt"
+            )
+            
+            logger.info(f"🛡️ LLM: Prompt sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+            
+            # Use sanitized prompt for LLM call
+            prompt = sanitized_prompt
+        else:
+            logger.info("✅ LLM: No PII detected in prompt")
         
         def llm_call():
             try:
@@ -137,6 +308,42 @@ class LLMSQLGenerator:
             return None
         
         return llm_call()
+    
+    def get_pii_protection_events(self) -> List[Dict[str, Any]]:
+        """Get all PII protection events from LLM interactions"""
+        return self.pii_protection_events
+    
+    def get_pii_protection_summary(self) -> Dict[str, Any]:
+        """Get a summary of PII protection events"""
+        if not self.pii_protection_events:
+            return {
+                'total_events': 0,
+                'pii_types': {},
+                'risk_levels': {},
+                'actions_taken': {}
+            }
+        
+        summary = {
+            'total_events': len(self.pii_protection_events),
+            'pii_types': {},
+            'risk_levels': {},
+            'actions_taken': {}
+        }
+        
+        for event in self.pii_protection_events:
+            # Count PII types
+            for pii_type in event.get('pii_types', []):
+                summary['pii_types'][pii_type] = summary['pii_types'].get(pii_type, 0) + 1
+            
+            # Count risk levels
+            risk_level = event.get('risk_level', 'unknown')
+            summary['risk_levels'][risk_level] = summary['risk_levels'].get(risk_level, 0) + 1
+            
+            # Count actions
+            action = event.get('action', 'unknown')
+            summary['actions_taken'][action] = summary['actions_taken'].get(action, 0) + 1
+        
+        return summary
     
     def generate(self, nl_query: str, clarified_values: Dict, gen_ctx: Dict, schema_tables: Dict) -> str:
         """Generate SQL from natural language query - alias for generate_sql for compatibility"""

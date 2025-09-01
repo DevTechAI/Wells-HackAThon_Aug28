@@ -47,11 +47,253 @@ class SecurityGuard:
             r"sp_configure"
         ]
         
+        # PII Detection Patterns
+        self.pii_patterns = {
+            'email': [
+                r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+                r'email\s*[:=]\s*["\']?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}["\']?'
+            ],
+            'phone': [
+                r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+                r'\b\(\d{3}\)\s*\d{3}[-.]?\d{4}\b',
+                r'\b\+1\s*\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+                r'phone\s*[:=]\s*["\']?\d{3}[-.]?\d{3}[-.]?\d{4}["\']?'
+            ],
+            'ssn': [
+                r'\b\d{3}-\d{2}-\d{4}\b',
+                r'\b\d{9}\b',
+                r'ssn\s*[:=]\s*["\']?\d{3}-\d{2}-\d{4}["\']?'
+            ],
+            'credit_card': [
+                r'\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b',
+                r'\b\d{4}\s\d{4}\s\d{4}\s\d{4}\b',
+                r'credit_card\s*[:=]\s*["\']?\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}["\']?'
+            ],
+            'address': [
+                r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Place|Pl|Way|Terrace|Ter)\b',
+                r'address\s*[:=]\s*["\']?\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Place|Pl|Way|Terrace|Ter)["\']?'
+            ],
+            'name': [
+                r'name\s*[:=]\s*["\']?[A-Z][a-z]+\s+[A-Z][a-z]+["\']?',
+                r'first_name\s*[:=]\s*["\']?[A-Z][a-z]+["\']?',
+                r'last_name\s*[:=]\s*["\']?[A-Z][a-z]+["\']?'
+            ],
+            'date_of_birth': [
+                r'\b(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])/\d{4}\b',
+                r'\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b',
+                r'birth_date\s*[:=]\s*["\']?(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])/\d{4}["\']?'
+            ]
+        }
+        
+        # PII Risk Levels
+        self.pii_risk_levels = {
+            'email': 'medium',
+            'phone': 'medium',
+            'ssn': 'high',
+            'credit_card': 'high',
+            'address': 'low',
+            'name': 'low',
+            'date_of_birth': 'medium'
+        }
+        
         self.allowed_operations = ["SELECT", "COUNT", "SUM", "AVG", "MAX", "MIN", "DISTINCT", "GROUP BY", "ORDER BY", "HAVING"]
         self.blocked_ips = set()
         self.rate_limits = {}  # IP -> {count: int, reset_time: datetime}
+        
+        # PII Masking/Unmasking System
+        self.pii_mapping = {}  # Maps masked values to original values
+        self.masked_to_original = {}  # Maps masked values to original values
+        self.original_to_masked = {}  # Maps original values to masked values
+        self.mapping_session_id = None  # Session ID for mapping
+        self.mapping_timestamp = None  # Timestamp for mapping
         self._lock = threading.Lock()
         self._init_database()
+    
+    def detect_pii(self, content: str, context: str = "unknown") -> Dict[str, Any]:
+        """Detect PII in content before embedding into vector database"""
+        logger.info(f"🔒 SecurityGuard: Scanning content for PII (context: {context})")
+        
+        pii_findings = {
+            'detected': False,
+            'pii_types': [],
+            'risk_level': 'low',
+            'sensitive_data': [],
+            'recommendations': [],
+            'context': context,
+            'content_length': len(content)
+        }
+        
+        detected_pii = []
+        
+        # Scan for each PII type
+        for pii_type, patterns in self.pii_patterns.items():
+            for pattern in patterns:
+                matches = re.finditer(pattern, content, re.IGNORECASE)
+                for match in matches:
+                    detected_pii.append({
+                        'type': pii_type,
+                        'value': match.group(),
+                        'position': match.start(),
+                        'risk_level': self.pii_risk_levels.get(pii_type, 'medium'),
+                        'pattern': pattern
+                    })
+        
+        if detected_pii:
+            pii_findings['detected'] = True
+            pii_findings['pii_types'] = list(set([item['type'] for item in detected_pii]))
+            pii_findings['sensitive_data'] = detected_pii
+            
+            # Determine overall risk level
+            risk_levels = [item['risk_level'] for item in detected_pii]
+            if 'high' in risk_levels:
+                pii_findings['risk_level'] = 'high'
+            elif 'medium' in risk_levels:
+                pii_findings['risk_level'] = 'medium'
+            else:
+                pii_findings['risk_level'] = 'low'
+            
+            # Generate recommendations
+            pii_findings['recommendations'] = self._generate_pii_recommendations(detected_pii)
+            
+            # Log PII detection
+            self._log_pii_detection(pii_findings)
+            
+            logger.warning(f"⚠️ SecurityGuard: PII detected in {context} - {len(detected_pii)} items found")
+        else:
+            logger.info(f"✅ SecurityGuard: No PII detected in {context}")
+        
+        return pii_findings
+    
+    def _generate_pii_recommendations(self, detected_pii: List[Dict[str, Any]]) -> List[str]:
+        """Generate recommendations for handling detected PII"""
+        recommendations = []
+        
+        high_risk_types = [item['type'] for item in detected_pii if item['risk_level'] == 'high']
+        medium_risk_types = [item['type'] for item in detected_pii if item['risk_level'] == 'medium']
+        
+        if high_risk_types:
+            recommendations.append(f"🚨 HIGH RISK: Remove or anonymize {', '.join(high_risk_types)} data before embedding")
+            recommendations.append("🔒 Consider using data masking or tokenization for sensitive fields")
+        
+        if medium_risk_types:
+            recommendations.append(f"⚠️ MEDIUM RISK: Review {', '.join(medium_risk_types)} data for privacy compliance")
+            recommendations.append("📧 Consider using generic placeholders for contact information")
+        
+        if detected_pii:
+            recommendations.append("🛡️ Implement data anonymization before vector embedding")
+            recommendations.append("📋 Add privacy controls to prevent PII exposure in search results")
+        
+        return recommendations
+    
+    def _log_pii_detection(self, pii_findings: Dict[str, Any]):
+        """Log PII detection event to security database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO security_events (
+                    timestamp, event_type, query, threat_level, action_taken, details
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                datetime.now().isoformat(),
+                'PII_DETECTION',
+                f"Context: {pii_findings['context']}",
+                pii_findings['risk_level'],
+                'BLOCKED' if pii_findings['risk_level'] == 'high' else 'FLAGGED',
+                json.dumps(pii_findings)
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to log PII detection: {e}")
+    
+    def sanitize_content_for_embedding(self, content: str, context: str = "unknown") -> Tuple[str, Dict[str, Any]]:
+        """Sanitize content by removing or masking PII before embedding"""
+        logger.info(f"🛡️ SecurityGuard: Sanitizing content for embedding (context: {context})")
+        
+        # Detect PII first
+        pii_findings = self.detect_pii(content, context)
+        
+        sanitized_content = content
+        sanitization_report = {
+            'original_length': len(content),
+            'sanitized_length': len(content),
+            'pii_removed': 0,
+            'pii_masked': 0,
+            'sanitization_applied': False
+        }
+        
+        if pii_findings['detected']:
+            sanitized_content = content
+            
+            for pii_item in pii_findings['sensitive_data']:
+                original_value = pii_item['value']
+                pii_type = pii_item['type']
+                risk_level = pii_item['risk_level']
+                
+                if risk_level == 'high':
+                    # Remove high-risk PII completely
+                    masked_value = f"[{pii_type.upper()}_REMOVED]"
+                    sanitized_content = sanitized_content.replace(original_value, masked_value)
+                    sanitization_report['pii_removed'] += 1
+                    
+                    # Store mapping for unmasking
+                    self.store_pii_mapping(original_value, masked_value, pii_type, context)
+                    
+                elif risk_level == 'medium':
+                    # Mask medium-risk PII
+                    if pii_type == 'email':
+                        masked_value = self._mask_email(original_value)
+                    elif pii_type == 'phone':
+                        masked_value = self._mask_phone(original_value)
+                    elif pii_type == 'credit_card':
+                        masked_value = self._mask_credit_card(original_value)
+                    else:
+                        masked_value = f"[{pii_type.upper()}_MASKED]"
+                    
+                    sanitized_content = sanitized_content.replace(original_value, masked_value)
+                    sanitization_report['pii_masked'] += 1
+                    
+                    # Store mapping for unmasking
+                    self.store_pii_mapping(original_value, masked_value, pii_type, context)
+            
+            sanitization_report['sanitized_length'] = len(sanitized_content)
+            sanitization_report['sanitization_applied'] = True
+            
+            logger.info(f"🛡️ SecurityGuard: Sanitized {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+        
+        return sanitized_content, sanitization_report
+    
+    def _mask_email(self, email: str) -> str:
+        """Mask email address while preserving domain"""
+        if '@' in email:
+            username, domain = email.split('@', 1)
+            if len(username) > 2:
+                masked_username = username[:2] + '*' * (len(username) - 2)
+            else:
+                masked_username = '*' * len(username)
+            return f"{masked_username}@{domain}"
+        return "[EMAIL_MASKED]"
+    
+    def _mask_phone(self, phone: str) -> str:
+        """Mask phone number while preserving format"""
+        # Remove all non-digits
+        digits = re.sub(r'\D', '', phone)
+        if len(digits) == 10:
+            return f"({digits[:3]}) ***-{digits[-4:]}"
+        elif len(digits) == 11 and digits[0] == '1':
+            return f"+1 ({digits[1:4]}) ***-{digits[-4:]}"
+        return "[PHONE_MASKED]"
+    
+    def _mask_credit_card(self, card: str) -> str:
+        """Mask credit card number"""
+        digits = re.sub(r'\D', '', card)
+        if len(digits) >= 13:
+            return f"****-****-****-{digits[-4:]}"
+        return "[CREDIT_CARD_MASKED]"
     
     def _init_database(self):
         """Initialize SQLite database for security logging"""
@@ -111,6 +353,128 @@ class SecurityGuard:
         except Exception as e:
             logger.error(f"❌ Failed to initialize security guard database: {e}")
             raise
+    
+    def create_pii_mapping_session(self, session_id: str = None) -> str:
+        """Create a new PII mapping session for tracking masked values"""
+        import uuid
+        from datetime import datetime
+        
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        
+        self.mapping_session_id = session_id
+        self.mapping_timestamp = datetime.now()
+        
+        # Clear previous mappings
+        self.pii_mapping = {}
+        self.masked_to_original = {}
+        self.original_to_masked = {}
+        
+        logger.info(f"🔐 SecurityGuard: Created PII mapping session {session_id}")
+        return session_id
+    
+    def get_pii_mapping_session(self) -> Dict[str, Any]:
+        """Get current PII mapping session information"""
+        return {
+            'session_id': self.mapping_session_id,
+            'timestamp': self.mapping_timestamp,
+            'total_mappings': len(self.pii_mapping),
+            'masked_count': len(self.masked_to_original),
+            'original_count': len(self.original_to_masked)
+        }
+    
+    def store_pii_mapping(self, original_value: str, masked_value: str, pii_type: str, context: str = "unknown") -> None:
+        """Store a mapping between original and masked PII values"""
+        if not self.mapping_session_id:
+            self.create_pii_mapping_session()
+        
+        # Store the mapping
+        mapping_key = f"{pii_type}_{context}_{hash(original_value)}"
+        self.pii_mapping[mapping_key] = {
+            'original': original_value,
+            'masked': masked_value,
+            'pii_type': pii_type,
+            'context': context,
+            'session_id': self.mapping_session_id,
+            'timestamp': self.mapping_timestamp
+        }
+        
+        # Store bidirectional mappings
+        self.masked_to_original[masked_value] = original_value
+        self.original_to_masked[original_value] = masked_value
+        
+        logger.info(f"🔐 SecurityGuard: Stored PII mapping for {pii_type} in {context}")
+    
+    def unmask_pii(self, masked_content: str) -> Tuple[str, Dict[str, Any]]:
+        """Unmask PII content using stored mappings"""
+        if not self.mapping_session_id:
+            logger.warning("⚠️ SecurityGuard: No PII mapping session active")
+            return masked_content, {'unmasked_count': 0, 'errors': ['No mapping session']}
+        
+        unmasked_content = masked_content
+        unmasked_count = 0
+        errors = []
+        
+        # Replace masked values with original values
+        for masked_value, original_value in self.masked_to_original.items():
+            if masked_value in unmasked_content:
+                unmasked_content = unmasked_content.replace(masked_value, original_value)
+                unmasked_count += 1
+                logger.info(f"🔓 SecurityGuard: Unmasked {masked_value} → {original_value}")
+        
+        # Also handle removed values (high-risk PII)
+        removed_patterns = {
+            '[SSN_REMOVED]': 'ssn',
+            '[CREDIT_CARD_REMOVED]': 'credit_card',
+            '[DATE_OF_BIRTH_MASKED]': 'date_of_birth'
+        }
+        
+        for removed_pattern, pii_type in removed_patterns.items():
+            if removed_pattern in unmasked_content:
+                # Try to find original value in mappings
+                for mapping_key, mapping_data in self.pii_mapping.items():
+                    if mapping_data['pii_type'] == pii_type and mapping_data['masked'] == removed_pattern:
+                        unmasked_content = unmasked_content.replace(removed_pattern, mapping_data['original'])
+                        unmasked_count += 1
+                        logger.info(f"🔓 SecurityGuard: Restored {removed_pattern} → {mapping_data['original']}")
+                        break
+                else:
+                    errors.append(f"Could not restore {removed_pattern} - no mapping found")
+        
+        return unmasked_content, {
+            'unmasked_count': unmasked_count,
+            'errors': errors,
+            'session_id': self.mapping_session_id
+        }
+    
+    def get_pii_mappings(self, pii_type: str = None, context: str = None) -> Dict[str, Any]:
+        """Get stored PII mappings with optional filtering"""
+        mappings = {}
+        
+        for mapping_key, mapping_data in self.pii_mapping.items():
+            if pii_type and mapping_data['pii_type'] != pii_type:
+                continue
+            if context and mapping_data['context'] != context:
+                continue
+            
+            mappings[mapping_key] = mapping_data
+        
+        return {
+            'mappings': mappings,
+            'total_count': len(mappings),
+            'session_id': self.mapping_session_id,
+            'timestamp': self.mapping_timestamp
+        }
+    
+    def clear_pii_mappings(self) -> None:
+        """Clear all PII mappings (for security)"""
+        self.pii_mapping = {}
+        self.masked_to_original = {}
+        self.original_to_masked = {}
+        self.mapping_session_id = None
+        self.mapping_timestamp = None
+        
+        logger.info("🗑️ SecurityGuard: Cleared all PII mappings")
     
     def validate_sql(self, sql: str, user: Optional[str] = None, ip_address: Optional[str] = None) -> Tuple[bool, str, str]:
         """Validate SQL for security issues with detailed analysis"""

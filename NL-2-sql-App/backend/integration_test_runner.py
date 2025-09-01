@@ -145,52 +145,74 @@ class IntegrationTestRunner:
                 result["details"] = "ChromaDB package not installed"
                 return result
             
-            # Test ChromaDB client
+            # Test ChromaDB client using singleton
             try:
                 persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
-                client = chromadb.PersistentClient(path=persist_dir)
+                
+                # Import and use singleton
+                import sys
+                sys.path.append('./backend')
+                from chromadb_singleton import get_chromadb_singleton
+                
+                # Get singleton instance
+                singleton = get_chromadb_singleton(persist_dir)
+                print(f"ℹ️ Using ChromaDB singleton client")
                 
                 # Check if test collection already exists
                 collection_name = "test_collection"
-                existing_collections = client.list_collections()
-                collection_exists = any(col.name == collection_name for col in existing_collections)
+                existing_collections = singleton.list_collections()
+                collection_exists = collection_name in existing_collections
                 
                 if collection_exists:
                     # Use existing collection
-                    collection = client.get_collection(name=collection_name)
+                    collection = singleton.get_or_create_collection(collection_name)
                     print(f"ℹ️ Using existing collection: {collection_name}")
                 else:
                     # Create new collection
-                    collection = client.create_collection(
-                        name=collection_name,
-                        metadata={"description": "Test collection"}
-                    )
-                    print(f"✅ Created new collection: {collection_name}")
+                    try:
+                        collection = singleton.get_or_create_collection(collection_name)
+                        print(f"✅ Created new collection: {collection_name}")
+                    except Exception as create_error:
+                        if "already exists" in str(create_error).lower():
+                            # Collection was created by another process
+                            collection = singleton.get_or_create_collection(collection_name)
+                            print(f"ℹ️ Collection already exists, using it: {collection_name}")
+                        else:
+                            raise create_error
                 
-                # Test embedding
-                collection.add(
+                # Test embedding using singleton
+                success = singleton.add_documents(
+                    collection_name=collection_name,
                     documents=["This is a test document"],
                     metadatas=[{"source": "test"}],
                     ids=["test_id"]
                 )
                 
-                # Test query
-                results = collection.query(
-                    query_texts=["test document"],
-                    n_results=1
-                )
-                
-                # Clean up
-                client.delete_collection("test_collection")
-                
-                if results and results['documents']:
-                    result["status"] = "passed"
-                    result["details"] = "ChromaDB working correctly. Test collection created and queried successfully."
+                if success:
+                    # Test query using singleton
+                    results = singleton.query(
+                        collection_name=collection_name,
+                        query_texts=["test document"],
+                        n_results=1
+                    )
+                    
+                    # Clean up - only delete if we created the collection
+                    if not collection_exists:
+                        # Note: Singleton doesn't have delete method, so we'll keep the collection
+                        print(f"ℹ️ Keeping test collection: {collection_name}")
+                    else:
+                        print(f"ℹ️ Keeping existing collection: {collection_name}")
+                    
+                    if results and results.get('documents'):
+                        result["status"] = "passed"
+                        result["details"] = "ChromaDB singleton working correctly. Test collection created and queried successfully."
+                    else:
+                        result["details"] = "ChromaDB singleton query returned no results"
                 else:
-                    result["details"] = "ChromaDB query returned no results"
+                    result["details"] = "ChromaDB singleton document addition failed"
                     
             except Exception as e:
-                result["details"] = f"ChromaDB test failed: {str(e)}"
+                result["details"] = f"ChromaDB singleton test failed: {str(e)}"
                 
         except Exception as e:
             result["details"] = f"ChromaDB import failed: {str(e)}"

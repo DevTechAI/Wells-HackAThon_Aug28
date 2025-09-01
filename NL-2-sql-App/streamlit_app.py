@@ -43,8 +43,129 @@ st.markdown("""
         background: linear-gradient(135deg, #f5f5f0 0%, #e8e6e3 50%, #d4d1cc 100%) !important;  /* Creamy coffee gradient */
         color: #000000 !important;
     }
-    .sidebar .sidebar-content {
-        background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
+    /* Streamlit alert components - ensure black text */
+    .stAlert {
+        color: #000000 !important;
+        background-color: #ffffff !important;
+        border: 1px solid #d4d1cc !important;
+    }
+    
+    /* Info messages */
+    .stAlert[data-baseweb="notification"] {
+        color: #000000 !important;
+        background-color: #f0f8ff !important;
+        border-color: #3498db !important;
+    }
+    
+    /* Success messages */
+    .stAlert[data-baseweb="notification"].success {
+        color: #000000 !important;
+        background-color: #f0f9ff !important;
+        border-color: #27ae60 !important;
+    }
+    
+    /* Error messages */
+    .stAlert[data-baseweb="notification"].error {
+        color: #000000 !important;
+        background-color: #fef2f2 !important;
+        border-color: #e74c3c !important;
+    }
+    
+    /* Warning messages */
+    .stAlert[data-baseweb="notification"].warning {
+        color: #000000 !important;
+        background-color: #fff7ed !important;
+        border-color: #f39c12 !important;
+    }
+    
+    /* Progress bar text */
+    .stProgress > div > div > div > div {
+        color: #000000 !important;
+    }
+    
+    /* All Streamlit text elements with black color */
+    .stMarkdown, .stText, .stWrite, .stAlert, .stProgress {
+        color: #000000 !important;
+    }
+    
+    /* Specific styling for progress messages */
+    .stProgress + div {
+        color: #000000 !important;
+    }
+    
+    /* Ensure all text in containers is black */
+    .stContainer, .stExpander, .stColumns {
+        color: #000000 !important;
+    }
+    
+    /* Target all text elements within the app */
+    .stApp * {
+        color: #000000 !important;
+    }
+    
+    /* Force black text for all elements */
+    * {
+        color: #000000 !important;
+    }
+    
+    /* Select box styling with white text for dropdown options */
+    .stSelectbox select {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 2px solid #d4d4d4 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Dropdown options - white text on dark background */
+    .stSelectbox select option {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+        padding: 8px !important;
+    }
+    
+    /* Dropdown options on hover */
+    .stSelectbox select option:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown options when selected */
+    .stSelectbox select option:checked {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown list container */
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #2c3e50 !important;
+    }
+    
+    /* Dropdown list items */
+    .stSelectbox [data-baseweb="select"] [role="option"] {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+        padding: 8px 12px !important;
+    }
+    
+    /* Dropdown list items on hover */
+    .stSelectbox [data-baseweb="select"] [role="option"]:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown list items when selected */
+    .stSelectbox [data-baseweb="select"] [role="option"][aria-selected="true"] {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown popup container */
+    .stSelectbox [data-baseweb="popup"] {
+        background-color: #2c3e50 !important;
+        border: 1px solid #34495e !important;
+        border-radius: 6px !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
     }
     .security-guard {
         background-color: #ffffff !important;

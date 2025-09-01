@@ -128,13 +128,64 @@ st.markdown("""
         caret-color: #000000 !important;  /* Ensure cursor is visible on focus */
     }
     
-    /* Select boxes with subtle styling */
+    /* Select box styling with white text for dropdown options */
     .stSelectbox select {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #d4d4d4 !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
         border-radius: 6px !important;
+    }
+    
+    /* Dropdown options - white text on dark background */
+    .stSelectbox select option {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+        padding: 8px !important;
+    }
+    
+    /* Dropdown options on hover */
+    .stSelectbox select option:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown options when selected */
+    .stSelectbox select option:checked {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown list container */
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #2c3e50 !important;
+    }
+    
+    /* Dropdown list items */
+    .stSelectbox [data-baseweb="select"] [role="option"] {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+        padding: 8px 12px !important;
+    }
+    
+    /* Dropdown list items on hover */
+    .stSelectbox [data-baseweb="select"] [role="option"]:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown list items when selected */
+    .stSelectbox [data-baseweb="select"] [role="option"][aria-selected="true"] {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Dropdown popup container */
+    .stSelectbox [data-baseweb="popup"] {
+        background-color: #2c3e50 !important;
+        border: 1px solid #34495e !important;
+        border-radius: 6px !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
     }
     
     /* Process query button - narrower width */
@@ -286,6 +337,99 @@ st.markdown("""
         font-size: 14px !important;
     }
     
+    /* Streamlit alert components - ensure black text */
+    .stAlert {
+        color: #000000 !important;
+        background-color: #ffffff !important;
+        border: 1px solid #d4d1cc !important;
+    }
+    
+    /* Info messages */
+    .stAlert[data-baseweb="notification"] {
+        color: #000000 !important;
+        background-color: #f0f8ff !important;
+        border-color: #3498db !important;
+    }
+    
+    /* Success messages */
+    .stAlert[data-baseweb="notification"].success {
+        color: #000000 !important;
+        background-color: #f0f9ff !important;
+        border-color: #27ae60 !important;
+    }
+    
+    /* Error messages */
+    .stAlert[data-baseweb="notification"].error {
+        color: #000000 !important;
+        background-color: #fef2f2 !important;
+        border-color: #e74c3c !important;
+    }
+    
+    /* Warning messages */
+    .stAlert[data-baseweb="notification"].warning {
+        color: #000000 !important;
+        background-color: #fff7ed !important;
+        border-color: #f39c12 !important;
+    }
+    
+    /* Progress bar text */
+    .stProgress > div > div > div > div {
+        color: #000000 !important;
+    }
+    
+    /* All Streamlit text elements with black color */
+    .stMarkdown, .stText, .stWrite, .stAlert, .stProgress {
+        color: #000000 !important;
+    }
+    
+    /* Specific styling for progress messages */
+    .stProgress + div {
+        color: #000000 !important;
+    }
+    
+    /* Ensure all text in containers is black */
+    .stContainer, .stExpander, .stColumns {
+        color: #000000 !important;
+    }
+    
+    /* Target all text elements within the app */
+    .stApp * {
+        color: #000000 !important;
+    }
+    
+    /* Specific styling for Streamlit progress and status messages */
+    .stProgress {
+        color: #000000 !important;
+    }
+    
+    .stProgress > div {
+        color: #000000 !important;
+    }
+    
+    /* Streamlit status messages */
+    .stAlert, .stAlert > div {
+        color: #000000 !important;
+    }
+    
+    /* Override Streamlit's default white text in alerts */
+    .stAlert[data-baseweb="notification"] {
+        color: #000000 !important;
+    }
+    
+    .stAlert[data-baseweb="notification"] * {
+        color: #000000 !important;
+    }
+    
+    /* Ensure all text in the app is black */
+    .stApp, .stApp * {
+        color: #000000 !important;
+    }
+    
+    /* Force black text for all elements */
+    * {
+        color: #000000 !important;
+    }
+    
     /* Target all sidebar content with dark text */
     [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] .stText,
@@ -310,14 +454,14 @@ st.markdown("""
     
     /* Dark text for sidebar expander content */
     [data-testid="stSidebar"] .streamlit-expanderContent {
-        color: #1a252f !important;
+        color: #000000 !important;
         font-weight: 500 !important;
         font-size: 13px !important;
     }
     
     /* Dark text for form labels and input labels */
     .form-label-dark {
-        color: #1a252f !important;
+        color: #000000 !important;
         font-weight: 600 !important;
         font-size: 16px !important;
         text-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
@@ -325,7 +469,7 @@ st.markdown("""
     
     /* Target Streamlit text area and input labels */
     .stTextArea label, .stTextInput label, .stSelectbox label {
-        color: #1a252f !important;
+        color: #000000 !important;
         font-weight: 600 !important;
         font-size: 16px !important;
     }
@@ -1501,9 +1645,23 @@ def verify_database_connections():
         # Clean up test data
         collection.delete(ids=["test_id"])
         
+        # Check for enhanced schema collections
+        enhanced_collections = []
+        expected_collections = [
+            "database_schema", "sql_schema", "sql_sample_data", "entity_relationships"
+        ]
+        
+        for collection_name in expected_collections:
+            try:
+                test_collection = chroma_manager.get_or_create_collection(collection_name)
+                collection_count = test_collection.count()
+                enhanced_collections.append(f"{collection_name}: {collection_count} items")
+            except Exception as e:
+                enhanced_collections.append(f"{collection_name}: Not available")
+        
         connection_status['chromadb']['status'] = True
         connection_status['chromadb']['message'] = "✅ ChromaDB connected successfully"
-        connection_status['chromadb']['details'] = "Vector database is operational"
+        connection_status['chromadb']['details'] = f"Vector database operational. Enhanced collections: {', '.join(enhanced_collections)}"
         
     except Exception as e:
         connection_status['chromadb']['status'] = False
@@ -2098,6 +2256,103 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Initialize ChromaDB with schema embeddings at startup using LangGraph agents
+    if 'schema_initialized' not in st.session_state:
+        st.session_state.schema_initialized = False
+    
+    if not st.session_state.schema_initialized:
+        try:
+            st.info("🔄 Initializing ChromaDB with database schema embeddings using LangGraph agents...")
+            
+            # Import enhanced schema initializer with LangGraph
+            import sys
+            sys.path.append('./backend')
+            from schema_initializer import SQLFileProcessor, SchemaAnalyzer, LangGraphSchemaProcessor
+            
+            # Get OpenAI API key
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if openai_api_key:
+                # Initialize LangGraph-based schema processor
+                st.info("📋 Step 1: Processing SQL schema files...")
+                sql_processor = SQLFileProcessor(db_folder="./db")
+                
+                # Process schema.sql file
+                schema_chunks = sql_processor.process_schema_file("schema.sql")
+                st.success(f"✅ Processed schema.sql: {len(schema_chunks)} chunks")
+                
+                # Process sample_data.sql file
+                sample_chunks = sql_processor.process_sample_data_file("sample_data.sql")
+                st.success(f"✅ Processed sample_data.sql: {len(sample_chunks)} chunks")
+                
+                # Initialize LangGraph schema initializer
+                st.info("🔄 Step 2: Initializing LangGraph schema agents...")
+                langgraph_initializer = LangGraphSchemaProcessor(
+                    openai_api_key=openai_api_key,
+                    chromadb_persist_dir="./chroma_db"
+                )
+                
+                # Run LangGraph pipeline to process schema and create embeddings
+                st.info("🔄 Step 3: Running LangGraph pipeline for schema embeddings...")
+                success = langgraph_initializer.run_schema_initialization_pipeline()
+                
+                if success:
+                    st.success("✅ ChromaDB schema initialization with LangGraph completed!")
+                    st.info("📊 Schema metadata, distinct values, and WHERE suggestions are now available")
+                    
+                    # Check for PII findings
+                    pii_findings = langgraph_initializer.get_pii_findings()
+                    pii_summary = langgraph_initializer.get_pii_summary()
+                    
+                    if pii_findings:
+                        st.warning("⚠️ PII (Personally Identifiable Information) detected during schema processing!")
+                        
+                        # Display PII summary
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total PII Findings", pii_summary['total_findings'])
+                        with col2:
+                            high_risk = pii_summary['risk_levels'].get('high', 0)
+                            st.metric("High Risk Items", high_risk, delta=f"{high_risk} items")
+                        with col3:
+                            medium_risk = pii_summary['risk_levels'].get('medium', 0)
+                            st.metric("Medium Risk Items", medium_risk, delta=f"{medium_risk} items")
+                        
+                        # Show PII types detected
+                        if pii_summary['pii_types']:
+                            st.markdown("**🔍 PII Types Detected:**")
+                            for pii_type, count in pii_summary['pii_types'].items():
+                                risk_level = "🔴 HIGH" if pii_type in ['ssn', 'credit_card'] else "🟡 MEDIUM" if pii_type in ['email', 'phone', 'date_of_birth'] else "🟢 LOW"
+                                st.markdown(f"- {risk_level} **{pii_type.title()}**: {count} instances")
+                        
+                        # Show contexts where PII was found
+                        if pii_summary['contexts']:
+                            st.markdown("**📍 PII Found In:**")
+                            for context in pii_summary['contexts'][:5]:  # Show first 5
+                                st.markdown(f"- `{context}`")
+                        
+                        # Show recommendations
+                        st.markdown("**🛡️ Security Recommendations:**")
+                        st.markdown("- ✅ PII has been automatically sanitized before embedding")
+                        st.markdown("- 🔒 High-risk PII (SSN, credit cards) has been removed")
+                        st.markdown("- 📧 Medium-risk PII (emails, phones) has been masked")
+                        st.markdown("- 📋 All PII detection events have been logged for audit")
+                        
+                        # Store PII findings in session state for later reference
+                        st.session_state.pii_findings = pii_findings
+                        st.session_state.pii_summary = pii_summary
+                    else:
+                        st.success("✅ No PII detected in schema data")
+                    
+                    st.session_state.schema_initialized = True
+                else:
+                    st.warning("⚠️ LangGraph schema initialization failed, continuing without enhanced schema embeddings")
+            else:
+                st.warning("⚠️ OpenAI API key not found, skipping LangGraph schema initialization")
+                
+        except Exception as e:
+            st.warning(f"⚠️ LangGraph schema initialization error: {e}")
+            logger.error(f"LangGraph schema initialization error: {e}")
     
     # Initialize enhanced components in session state
     if 'query_history' not in st.session_state:
