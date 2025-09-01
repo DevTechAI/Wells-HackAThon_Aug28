@@ -440,7 +440,13 @@ class SystemInitializer:
                 try:
                     if name == "validator":
                         from backend.validator import ValidatorAgent
-                        validator = ValidatorAgent()
+                        # Use basic schema tables for testing
+                        schema_tables = {
+                            "customers": ["id", "name", "email"],
+                            "accounts": ["id", "customer_id", "balance"],
+                            "transactions": ["id", "account_id", "amount"]
+                        }
+                        validator = ValidatorAgent(schema_tables)
                         security_status[name] = "available"
                     elif name == "security_guards":
                         # SecurityGuard is defined in app.py

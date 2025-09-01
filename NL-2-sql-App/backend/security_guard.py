@@ -9,6 +9,7 @@ import json
 import sqlite3
 import hashlib
 import logging
+import os
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime, timedelta
 import ipaddress
@@ -21,6 +22,11 @@ class SecurityGuard:
     
     def __init__(self, db_path: str = "tests/security_guard.db"):
         self.db_path = db_path
+        
+        # Check if PII scanning is enabled via environment variable
+        self.enable_pii_scanning = os.getenv("ENABLE_PII_SCANNING", "true").lower() == "true"
+        logger.info(f"🔒 SecurityGuard: PII scanning {'enabled' if self.enable_pii_scanning else 'disabled'}")
+        
         self.dangerous_patterns = [
             r"DROP\s+TABLE",
             r"DELETE\s+FROM",
@@ -111,6 +117,21 @@ class SecurityGuard:
     
     def detect_pii(self, content: str, context: str = "unknown") -> Dict[str, Any]:
         """Detect PII in content before embedding into vector database"""
+        
+        # Check if PII scanning is disabled
+        if not self.enable_pii_scanning:
+            logger.info(f"🔒 SecurityGuard: PII scanning disabled, skipping scan for {context}")
+            return {
+                'detected': False,
+                'pii_types': [],
+                'risk_level': 'low',
+                'sensitive_data': [],
+                'recommendations': [],
+                'context': context,
+                'content_length': len(content),
+                'scanning_disabled': True
+            }
+        
         logger.info(f"🔒 SecurityGuard: Scanning content for PII (context: {context})")
         
         pii_findings = {
@@ -212,6 +233,19 @@ class SecurityGuard:
     
     def sanitize_content_for_embedding(self, content: str, context: str = "unknown") -> Tuple[str, Dict[str, Any]]:
         """Sanitize content by removing or masking PII before embedding"""
+        
+        # Check if PII scanning is disabled
+        if not self.enable_pii_scanning:
+            logger.info(f"🛡️ SecurityGuard: PII scanning disabled, returning original content for {context}")
+            return content, {
+                'original_length': len(content),
+                'sanitized_length': len(content),
+                'pii_removed': 0,
+                'pii_masked': 0,
+                'sanitization_applied': False,
+                'scanning_disabled': True
+            }
+        
         logger.info(f"🛡️ SecurityGuard: Sanitizing content for embedding (context: {context})")
         
         # Detect PII first

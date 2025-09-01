@@ -8,8 +8,13 @@ import streamlit as st
 import os
 import sys
 import time
+import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Add backend to path
 sys.path.append('./backend')
@@ -188,6 +193,126 @@ st.markdown("""
         box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
     }
     
+    /* Streamlit metrics styling - white text */
+    .stMetric {
+        color: #ffffff !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] {
+        color: #ffffff !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] label {
+        color: #ffffff !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] div {
+        color: #ffffff !important;
+    }
+    
+    /* Streamlit metric labels and values */
+    .stMetric [data-testid="metric-container"] [data-testid="metric-label"] {
+        color: #ffffff !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] [data-testid="metric-value"] {
+        color: #ffffff !important;
+    }
+    
+    .stMetric [data-testid="metric-container"] [data-testid="metric-delta"] {
+        color: #ffffff !important;
+    }
+    
+    /* Selectbox label styling - white text */
+    .stSelectbox label {
+        color: #ffffff !important;
+    }
+    
+    .stSelectbox [data-testid="stSelectbox"] label {
+        color: #ffffff !important;
+    }
+    
+    /* Enhanced selectbox styling for role selection dropdown options */
+    .stSelectbox [data-baseweb="select"] [data-testid="stSelectbox"] {
+        background-color: #2c3e50 !important;
+    }
+    
+    /* Force white text for all selectbox dropdown options */
+    .stSelectbox [data-baseweb="select"] [role="option"] {
+        color: #ffffff !important;
+        background-color: #2c3e50 !important;
+    }
+    
+    .stSelectbox [data-baseweb="select"] [role="option"]:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    .stSelectbox [data-baseweb="select"] [role="option"][aria-selected="true"] {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Override any conflicting styles for dropdown options */
+    .stSelectbox [data-baseweb="select"] [role="option"],
+    .stSelectbox [data-baseweb="select"] [role="option"]:hover,
+    .stSelectbox [data-baseweb="select"] [role="option"][aria-selected="true"] {
+        color: #ffffff !important;
+    }
+    
+    /* Specific styling for role selector dropdown */
+    [data-testid="stSelectbox"] [role="option"] {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+    }
+    
+    [data-testid="stSelectbox"] [role="option"]:hover {
+        background-color: #34495e !important;
+        color: #ffffff !important;
+    }
+    
+    [data-testid="stSelectbox"] [role="option"][aria-selected="true"] {
+        background-color: #3498db !important;
+        color: #ffffff !important;
+    }
+    
+    /* Streamlit info, warning, success messages - ensure good visibility */
+    .stAlert {
+        color: #ffffff !important;
+    }
+    
+    .stAlert [data-testid="stAlert"] {
+        color: #ffffff !important;
+    }
+    
+    /* Info messages */
+    .stAlert [data-testid="stAlert"] [data-testid="stAlertContent"] {
+        color: #ffffff !important;
+    }
+    
+    /* Warning messages */
+    .stAlert [data-testid="stAlert"] [data-testid="stAlertContent"] {
+        color: #ffffff !important;
+    }
+    
+    /* Success messages */
+    .stAlert [data-testid="stAlert"] [data-testid="stAlertContent"] {
+        color: #ffffff !important;
+    }
+    
+    /* Tech stack and integration test results - white text */
+    .stMarkdown {
+        color: #ffffff !important;
+    }
+    
+    .stMarkdown p {
+        color: #ffffff !important;
+    }
+    
+    .stMarkdown strong {
+        color: #ffffff !important;
+    }
+    
     /* Process query button - narrower width */
     .stButton > button {
         background-color: #f8f9fa !important;  /* Whitish background */
@@ -321,6 +446,69 @@ st.markdown("""
         font-weight: bold !important;
         font-size: 16px !important;
         text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Security Guard Results - black text for quoted content */
+    .security-guard-sql {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-family: 'Courier New', monospace !important;
+        background-color: #f8f9fa !important;
+        padding: 8px 12px !important;
+        border-radius: 4px !important;
+        border: 1px solid #dee2e6 !important;
+        margin: 4px 0 !important;
+    }
+    
+    .security-guard-details {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+    
+    .security-guard-message {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        background-color: #f8f9fa !important;
+        padding: 6px 10px !important;
+        border-radius: 4px !important;
+        border-left: 3px solid #28a745 !important;
+    }
+    
+    /* Query Processing Results - dark text */
+    .query-result-item {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        margin: 4px 0 !important;
+    }
+    
+    .query-result-sql {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-family: 'Courier New', monospace !important;
+        background-color: #f8f9fa !important;
+        padding: 6px 10px !important;
+        border-radius: 4px !important;
+        border: 1px solid #dee2e6 !important;
+        margin: 4px 0 !important;
+    }
+    
+    .query-result-time {
+        color: #000000 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+    
+    /* Streamlit write and text elements - ensure dark text */
+    .stMarkdown p, .stText, .stWrite {
+        color: #000000 !important;
+    }
+    
+    /* Force dark text for all query-related content */
+    div[data-testid="stMarkdownContainer"] p {
+        color: #000000 !important;
     }
     
     /* Dark text for sidebar expanders and query entries */
@@ -804,7 +992,7 @@ def render_tech_stack_about():
     }
     
     for tech, description in tech_stack.items():
-        st.sidebar.markdown(f"**{tech}:** {description}")
+        st.sidebar.markdown(f'<div style="color: #000000; margin-bottom: 8px;"><span style="background-color: #f5f5dc; padding: 6px 12px; border-radius: 12px; font-weight: bold; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">{tech}</span>: {description}</div>', unsafe_allow_html=True)
 
 def render_tech_stack_with_tests():
     """Render tech stack with integration test results for Developer view"""
@@ -831,7 +1019,7 @@ def render_tech_stack_with_tests():
     }
     
     for tech, description in tech_stack.items():
-        st.markdown(f"**{tech}:** {description}")
+        st.markdown(f'<div style="color: #000000; margin-bottom: 8px;"><span style="background-color: #f5f5dc; padding: 6px 12px; border-radius: 12px; font-weight: bold; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">{tech}</span>: {description}</div>', unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -871,15 +1059,16 @@ def render_tech_stack_with_tests():
             padding: 12px;
             margin: 8px 0;
             background-color: #1e1e1e;
+            color: #ffffff;
         ">
             <div style="display: flex; align-items: center; margin-bottom: 8px;">
                 <span style="font-size: 1.5em; margin-right: 8px;">{status_icon}</span>
                 <strong style="color: {status_color};">{result['name']}</strong>
-                <span style="margin-left: auto; font-size: 0.8em; color: #888;">
+                <span style="margin-left: auto; font-size: 0.8em; color: #ffffff;">
                     {result['duration']:.2f}s
                 </span>
             </div>
-            <div style="color: #ccc; font-size: 0.9em;">
+            <div style="color: #ffffff; font-size: 0.9em;">
                 {result['details']}
             </div>
         </div>
@@ -1318,7 +1507,7 @@ def render_developer_ui(selected_role):
         
         with col2:
             # Role is now handled in main content area
-            st.markdown("🎭 **Role:** Developer")
+            st.markdown('<div style="color: #000000;">🎭 **Role:** Developer</div>', unsafe_allow_html=True)
             role_input = "Developer"
         
         # Query input with Enter key handling
@@ -1422,9 +1611,17 @@ def render_developer_ui(selected_role):
                 st.info("Security validation completed")
                 if isinstance(guards, dict):
                     for key, value in guards.items():
-                        st.write(f"**{key}:** {value}")
+                        if key == "sql":
+                            # Style SQL with dark monospace text
+                            st.markdown(f'<div class="security-guard-sql"><strong>{key}:</strong> {value}</div>', unsafe_allow_html=True)
+                        elif key in ["guards_applied", "total_guards", "message"]:
+                            # Style other guard details with dark text
+                            st.markdown(f'<div class="security-guard-details"><strong>"{key}":</strong> {value}</div>', unsafe_allow_html=True)
+                        else:
+                            # Default styling for other keys
+                            st.markdown(f'<div class="security-guard-details"><strong>{key}:</strong> {value}</div>', unsafe_allow_html=True)
                 else:
-                    st.write(f"**Guards:** {guards}")
+                    st.markdown(f'<div class="security-guard-details"><strong>Guards:</strong> {guards}</div>', unsafe_allow_html=True)
         else:
             st.info("No security guard data available. Please run a query first.")
     
@@ -1436,7 +1633,7 @@ def render_developer_ui(selected_role):
                 export_pdf_report(st.session_state)
         else:
             st.info("No data available for export. Please run a query first.")
-    
+
     with tab7:
         st.markdown("#### 🔍 Agent Flow Debugger")
         
@@ -1648,7 +1845,7 @@ def verify_database_connections():
         # Check for enhanced schema collections
         enhanced_collections = []
         expected_collections = [
-            "database_schema", "sql_schema", "sql_sample_data", "entity_relationships"
+            "database_schema"
         ]
         
         for collection_name in expected_collections:
@@ -1658,6 +1855,11 @@ def verify_database_connections():
                 enhanced_collections.append(f"{collection_name}: {collection_count} items")
             except Exception as e:
                 enhanced_collections.append(f"{collection_name}: Not available")
+        
+        # Note about skipped collections for essential schema focus
+        enhanced_collections.append("sql_schema: Skipped (essential schema only)")
+        enhanced_collections.append("sql_sample_data: Skipped (essential schema only)")
+        enhanced_collections.append("entity_relationships: Skipped (essential schema only)")
         
         connection_status['chromadb']['status'] = True
         connection_status['chromadb']['message'] = "✅ ChromaDB connected successfully"
@@ -1755,7 +1957,7 @@ def process_query(query: str, user_input: str, role_input: str):
         progress_bar.progress(56)
         st.info("🔄 **Starting agent workflow processing**")
         
-        with st.spinner("🔄 Processing.... please wait"):
+    with st.spinner("🔄 Processing.... please wait"):
             try:
                 result = simulate_agent_workflow_with_cot(
                     query, timing_tracker, cot_workflow, user=user_input, ip_address="127.0.0.1"
@@ -1803,77 +2005,77 @@ def process_query(query: str, user_input: str, role_input: str):
                 st.exception(e)
                 status_text.text("❌ Step 5/7: Result extraction failed")
                 return
+
+            # Step 6: Apply security guards
+            status_text.text("🛡️ Step 6/7: Applying security guards...")
+            progress_bar.progress(85)
+            st.info("🛡️ **Applying security guards**")
+            try:
+                security_guard = SecurityGuard()
+                guard_result = security_guard.apply_guards(sql)
+                st.success("✅ **Security guards applied**")
+                st.info(f"🛡️ **Guard result:** {guard_result.get('message', 'No message')}")
+                status_text.text("✅ Step 6/7: Security guards applied")
+            except Exception as e:
+                st.error(f"❌ **Security guard application failed:** {str(e)}")
+                guard_result = {"sql": sql, "guards_applied": {}, "total_guards": 0}
+                status_text.text("❌ Step 6/7: Security guard application failed")
+            
+            # Step 7: Store results and finalize
+            status_text.text("💾 Step 7/7: Storing results and finalizing...")
+            progress_bar.progress(100)
         
-        # Step 6: Apply security guards
-        status_text.text("🛡️ Step 6/7: Applying security guards...")
-        progress_bar.progress(85)
-        st.info("🛡️ **Applying security guards**")
-        try:
-            security_guard = SecurityGuard()
-            guard_result = security_guard.apply_guards(sql)
-            st.success("✅ **Security guards applied**")
-            st.info(f"🛡️ **Guard result:** {guard_result.get('message', 'No message')}")
-            status_text.text("✅ Step 6/7: Security guards applied")
-        except Exception as e:
-            st.error(f"❌ **Security guard application failed:** {str(e)}")
-            guard_result = {"sql": sql, "guards_applied": {}, "total_guards": 0}
-            status_text.text("❌ Step 6/7: Security guard application failed")
+            # Store results in session state with logging
+            st.info("💾 **Storing results in session state**")
+            try:
+                st.session_state.last_results = results
+                st.session_state.last_guards = guard_result
+                st.session_state.last_query_time = timing_summary.get('total_time', 0)
+                st.session_state.last_sql = guard_result.get('sql', sql)
+                st.session_state.last_timing_summary = timing_summary
+                st.session_state.last_summary = summary
+                st.session_state.last_cot_workflow = cot_workflow
+                st.success("✅ **Results stored in session state**")
+            except Exception as e:
+                st.error(f"❌ **Session state storage failed:** {str(e)}")
         
-        # Step 7: Store results and finalize
-        status_text.text("💾 Step 7/7: Storing results and finalizing...")
-        progress_bar.progress(100)
+            # Store debug information from pipeline
+            st.info("🔍 **Storing debug information**")
+            try:
+                if hasattr(result, 'get') and isinstance(result, dict):
+                    st.session_state.debug_report = result.get("debug_report", {})
+                    st.session_state.last_agent_flow = result.get("agent_flow", [])
+                    st.session_state.last_generated_sql = result.get("generated_sql", sql)
+                    st.session_state.last_validation_details = result.get("validation_details", {})
+                    st.session_state.last_security_events = result.get("security_events", [])
+                    st.success("✅ **Debug information stored**")
+                else:
+                    st.warning("⚠️ **No debug information available**")
+            except Exception as e:
+                st.error(f"❌ **Debug information storage failed:** {str(e)}")
+    
+            # Add to query history with logging
+            st.info("📚 **Adding to query history**")
+            try:
+                query_history = QueryHistory()
+                query_history.add_query(
+                    query=query,
+                    sql=guard_result.get('sql', sql),
+                    results_count=len(results),
+                    timestamp=datetime.now().strftime("%H:%M:%S")
+                )
+                st.success("✅ **Query added to history**")
+            except Exception as e:
+                st.error(f"❌ **Query history update failed:** {str(e)}")
         
-        # Store results in session state with logging
-        st.info("💾 **Storing results in session state**")
-        try:
-            st.session_state.last_results = results
-            st.session_state.last_guards = guard_result
-            st.session_state.last_query_time = timing_summary.get('total_time', 0)
-            st.session_state.last_sql = guard_result.get('sql', sql)
-            st.session_state.last_timing_summary = timing_summary
-            st.session_state.last_summary = summary
-            st.session_state.last_cot_workflow = cot_workflow
-            st.success("✅ **Results stored in session state**")
-        except Exception as e:
-            st.error(f"❌ **Session state storage failed:** {str(e)}")
-        
-        # Store debug information from pipeline
-        st.info("🔍 **Storing debug information**")
-        try:
-            if hasattr(result, 'get') and isinstance(result, dict):
-                st.session_state.debug_report = result.get("debug_report", {})
-                st.session_state.last_agent_flow = result.get("agent_flow", [])
-                st.session_state.last_generated_sql = result.get("generated_sql", sql)
-                st.session_state.last_validation_details = result.get("validation_details", {})
-                st.session_state.last_security_events = result.get("security_events", [])
-                st.success("✅ **Debug information stored**")
-            else:
-                st.warning("⚠️ **No debug information available**")
-        except Exception as e:
-            st.error(f"❌ **Debug information storage failed:** {str(e)}")
-        
-        # Add to query history with logging
-        st.info("📚 **Adding to query history**")
-        try:
-            query_history = QueryHistory()
-            query_history.add_query(
-                query=query,
-                sql=guard_result.get('sql', sql),
-                results_count=len(results),
-                timestamp=datetime.now().strftime("%H:%M:%S")
-            )
-            st.success("✅ **Query added to history**")
-        except Exception as e:
-            st.error(f"❌ **Query history update failed:** {str(e)}")
-        
-        # Final success message
-        status_text.text("🎉 All steps completed successfully!")
-        st.success("🎉 **Query processing completed successfully!**")
-        st.info(f"⏱️ **Total processing time:** {timing_summary.get('total_time', 0):.2f}s")
-        
-        # Trigger UI update
-        st.info("🔄 **Triggering UI update**")
-        st.rerun()
+            # Final success message
+            status_text.text("🎉 All steps completed successfully!")
+            st.success("🎉 **Query processing completed successfully!**")
+            st.info(f"⏱️ **Total processing time:** {timing_summary.get('total_time', 0):.2f}s")
+    
+            # Trigger UI update
+            st.info("🔄 **Triggering UI update**")
+            st.rerun()
 
 def render_security_guard_results(validation_details: Dict[str, Any], security_events: List[Dict[str, Any]]):
     """Render security guard results in the UI"""
@@ -2231,6 +2433,15 @@ def main():
         background-color: #ffffff !important;
         color: #2c3e50 !important;
     }
+    /* Ensure selectbox dropdown options have white text */
+    .stSelectbox select option {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+    }
+    .stSelectbox [data-baseweb="select"] [role="option"] {
+        background-color: #2c3e50 !important;
+        color: #ffffff !important;
+    }
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #e8e6e3 0%, #d4d1cc 100%) !important;  /* Sidebar gradient */
     }
@@ -2250,12 +2461,12 @@ def main():
     <div style="text-align: center; margin-top: -100px; margin-bottom: 10px;">
         <h1 style="color: #8B0000; font-size: 2.8em; font-weight: bold; margin-bottom: 5px; text-shadow: 2px 2px 4px rgba(139,0,0,0.3);">
             WELLS - NL2SQL Data Insighter
-        </h1>
-        <p style="color: #666; font-size: 1.0em; margin: 0;">
+            </h1>
+        <p style="color: #000000; font-size: 1.0em; margin: 0; font-weight: 600;">
             Natural Language to SQL Query Processing with AI Agents
         </p>
-    </div>
-    """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
     
     # Initialize ChromaDB with schema embeddings at startup using LangGraph agents
     if 'schema_initialized' not in st.session_state:
@@ -2267,6 +2478,7 @@ def main():
             
             # Import enhanced schema initializer with LangGraph
             import sys
+            import os
             sys.path.append('./backend')
             from schema_initializer import SQLFileProcessor, SchemaAnalyzer, LangGraphSchemaProcessor
             
@@ -2300,49 +2512,59 @@ def main():
                     st.success("✅ ChromaDB schema initialization with LangGraph completed!")
                     st.info("📊 Schema metadata, distinct values, and WHERE suggestions are now available")
                     
-                    # Check for PII findings
-                    pii_findings = langgraph_initializer.get_pii_findings()
-                    pii_summary = langgraph_initializer.get_pii_summary()
+                    # Check PII scanning status
+                    import os
+                    pii_scanning_enabled = os.getenv("ENABLE_PII_SCANNING", "true").lower() == "true"
                     
-                    if pii_findings:
-                        st.warning("⚠️ PII (Personally Identifiable Information) detected during schema processing!")
+                    if pii_scanning_enabled:
+                        st.info("🔒 PII scanning is enabled - checking for sensitive data...")
                         
-                        # Display PII summary
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total PII Findings", pii_summary['total_findings'])
-                        with col2:
-                            high_risk = pii_summary['risk_levels'].get('high', 0)
-                            st.metric("High Risk Items", high_risk, delta=f"{high_risk} items")
-                        with col3:
-                            medium_risk = pii_summary['risk_levels'].get('medium', 0)
-                            st.metric("Medium Risk Items", medium_risk, delta=f"{medium_risk} items")
+                        # Check for PII findings
+                        pii_findings = langgraph_initializer.get_pii_findings()
+                        pii_summary = langgraph_initializer.get_pii_summary()
                         
-                        # Show PII types detected
-                        if pii_summary['pii_types']:
-                            st.markdown("**🔍 PII Types Detected:**")
-                            for pii_type, count in pii_summary['pii_types'].items():
-                                risk_level = "🔴 HIGH" if pii_type in ['ssn', 'credit_card'] else "🟡 MEDIUM" if pii_type in ['email', 'phone', 'date_of_birth'] else "🟢 LOW"
-                                st.markdown(f"- {risk_level} **{pii_type.title()}**: {count} instances")
-                        
-                        # Show contexts where PII was found
-                        if pii_summary['contexts']:
-                            st.markdown("**📍 PII Found In:**")
-                            for context in pii_summary['contexts'][:5]:  # Show first 5
-                                st.markdown(f"- `{context}`")
-                        
-                        # Show recommendations
-                        st.markdown("**🛡️ Security Recommendations:**")
-                        st.markdown("- ✅ PII has been automatically sanitized before embedding")
-                        st.markdown("- 🔒 High-risk PII (SSN, credit cards) has been removed")
-                        st.markdown("- 📧 Medium-risk PII (emails, phones) has been masked")
-                        st.markdown("- 📋 All PII detection events have been logged for audit")
-                        
-                        # Store PII findings in session state for later reference
-                        st.session_state.pii_findings = pii_findings
-                        st.session_state.pii_summary = pii_summary
+                        if pii_findings:
+                            st.warning("⚠️ PII (Personally Identifiable Information) detected during schema processing!")
+                            
+                            # Display PII summary
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total PII Findings", pii_summary['total_findings'])
+                            with col2:
+                                high_risk = pii_summary['risk_levels'].get('high', 0)
+                                st.metric("High Risk Items", high_risk, delta=f"{high_risk} items")
+                            with col3:
+                                medium_risk = pii_summary['risk_levels'].get('medium', 0)
+                                st.metric("Medium Risk Items", medium_risk, delta=f"{medium_risk} items")
+                            
+                            # Show PII types detected
+                            if pii_summary['pii_types']:
+                                st.markdown("**🔍 PII Types Detected:**")
+                                for pii_type, count in pii_summary['pii_types'].items():
+                                    risk_level = "🔴 HIGH" if pii_type in ['ssn', 'credit_card'] else "🟡 MEDIUM" if pii_type in ['email', 'phone', 'date_of_birth'] else "🟢 LOW"
+                                    st.markdown(f"- {risk_level} **{pii_type.title()}**: {count} instances")
+                            
+                            # Show contexts where PII was found
+                            if pii_summary['contexts']:
+                                st.markdown("**📍 PII Found In:**")
+                                for context in pii_summary['contexts'][:5]:  # Show first 5
+                                    st.markdown(f"- `{context}`")
+                            
+                            # Show recommendations
+                            st.markdown("**🛡️ Security Recommendations:**")
+                            st.markdown("- ✅ PII has been automatically sanitized before embedding")
+                            st.markdown("- 🔒 High-risk PII (SSN, credit cards) has been removed")
+                            st.markdown("- 📧 Medium-risk PII (emails, phones) has been masked")
+                            st.markdown("- 📋 All PII detection events have been logged for audit")
+                            
+                            # Store PII findings in session state for later reference
+                            st.session_state.pii_findings = pii_findings
+                            st.session_state.pii_summary = pii_summary
+                        else:
+                            st.success("✅ No PII detected in schema data")
                     else:
-                        st.success("✅ No PII detected in schema data")
+                        st.info("⚡ PII scanning is disabled - initialization completed faster")
+                        st.info("💡 To enable PII scanning, set ENABLE_PII_SCANNING=true in your .env file")
                     
                     st.session_state.schema_initialized = True
                 else:
@@ -2352,7 +2574,7 @@ def main():
                 
         except Exception as e:
             st.warning(f"⚠️ LangGraph schema initialization error: {e}")
-            logger.error(f"LangGraph schema initialization error: {e}")
+            logger.error(f"LangGraph schema initialization error22: {e}")
     
     # Initialize enhanced components in session state
     if 'query_history' not in st.session_state:
@@ -2377,18 +2599,17 @@ def main():
         render_tech_stack_about()
     
     # Main content area with role selection
-    st.markdown("### 🎭 Role Selection")
-    selected_role = st.selectbox(
-        "Choose your role:",
+        st.markdown("### 🎭 Role Selection")
+        selected_role = st.selectbox(
+            "Choose your role:",
         ["Developer", "Business User"],
         key="role_selector_main"
-    )
-    
+        )
     # Show role-specific info in main area
-    if selected_role == "Developer":
-        st.markdown('<div class="developer-view-info">👨‍💻 Developer View: Tech Stack, Agent Flow, Detailed Analysis</div>', unsafe_allow_html=True)
-    elif selected_role == "Business User":
-        st.markdown('<div class="business-view-info">👔 **Business View**: Simple Results, Health Status, Feedback</div>', unsafe_allow_html=True)
+        if selected_role == "Developer":
+            st.markdown('<div class="developer-view-info">👨‍💻 Developer View: Tech Stack, Agent Flow, Detailed Analysis</div>', unsafe_allow_html=True)
+        elif selected_role == "Business User":
+            st.markdown('<div class="business-view-info">👔 **Business View**: Simple Results, Health Status, Feedback</div>', unsafe_allow_html=True)
     
     # Render role-based UI
     if selected_role == "Developer":

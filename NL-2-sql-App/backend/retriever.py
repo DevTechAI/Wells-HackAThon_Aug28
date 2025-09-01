@@ -53,32 +53,17 @@ class RetrieverAgent:
             )
             context.update(schema_context)
             
-            # 2. Get SQL schema context (table definitions)
-            sql_schema_context = self.retriever.retrieve_context_with_details(
-                query=query,
-                collection_name="sql_schema",
-                n_results=3
-            )
-            if sql_schema_context.get('schema_context'):
-                context['sql_schema_context'] = sql_schema_context['schema_context']
+            # 2. Get SQL schema context (table definitions) - SKIPPED DUE TO EMBEDDING OPTIMIZATION
+            logger.info("⏭️ Retriever: Skipping sql_schema collection (embeddings disabled)")
+            context['sql_schema_context'] = "SQL schema embeddings disabled for performance optimization"
             
-            # 3. Get sample data context (real data examples)
-            sample_data_context = self.retriever.retrieve_context_with_details(
-                query=query,
-                collection_name="sql_sample_data",
-                n_results=3
-            )
-            if sample_data_context.get('schema_context'):
-                context['sample_data_context'] = sample_data_context['schema_context']
+            # 3. Get sample data context (real data examples) - SKIPPED DUE TO EMBEDDING OPTIMIZATION  
+            logger.info("⏭️ Retriever: Skipping sql_sample_data collection (embeddings disabled)")
+            context['sample_data_context'] = "Sample data embeddings disabled for performance optimization"
             
-            # 4. Get entity relationships context
-            relationship_context = self.retriever.retrieve_context_with_details(
-                query=query,
-                collection_name="entity_relationships",
-                n_results=3
-            )
-            if relationship_context.get('schema_context'):
-                context['relationship_context'] = relationship_context['schema_context']
+            # 4. Get entity relationships context - SKIPPED FOR ESSENTIAL SCHEMA ONLY
+            logger.info("⏭️ Retriever: Skipping entity_relationships collection (focusing on essential schema only)")
+            context['relationship_context'] = "Entity relationships disabled to focus on schema structure and distinct values"
             
             # Extract and structure schema metadata
             context['schema_metadata'] = self._extract_schema_metadata(context)

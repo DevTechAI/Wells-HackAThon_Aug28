@@ -19,3 +19,6 @@ TIMEOUT_SECONDS=45
 # Database Settings
 DB_PATH=banking.db
 CHROMA_PERSIST_DIR=./chroma_db
+
+# PII Protection Settings
+ENABLE_PII_SCANNING=true

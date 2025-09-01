@@ -230,37 +230,46 @@ Generate only the SQL query without any explanation:
             logger.error("❌ LLM not loaded")
             return None
         
-        # PII Protection: Scan prompt before sending to external LLM
-        logger.info("🔒 LLM: Scanning prompt for PII before external API call")
-        pii_findings = self.security_guard.detect_pii(prompt, "llm_prompt")
-        
-        if pii_findings['detected']:
-            logger.warning(f"⚠️ LLM: PII detected in prompt - {pii_findings['pii_types']} found")
+        # Check if PII scanning is enabled before processing
+        if self.security_guard.enable_pii_scanning:
+            # PII Protection: Scan prompt before sending to external LLM
+            logger.info("🔒 LLM: Scanning prompt for PII before external API call")
+            pii_findings = self.security_guard.detect_pii(prompt, "llm_prompt")
             
-            # Log PII protection event
-            self.pii_protection_events.append({
-                'timestamp': time.time(),
-                'pii_types': pii_findings['pii_types'],
-                'risk_level': pii_findings['risk_level'],
-                'context': 'llm_prompt',
-                'action': 'sanitized'
-            })
-            
-            # Sanitize prompt before sending to external LLM
-            sanitized_prompt, sanitization_report = self.security_guard.sanitize_content_for_embedding(
-                prompt, "llm_prompt"
-            )
-            
-            logger.info(f"🛡️ LLM: Prompt sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
-            
-            # Use sanitized prompt for LLM call
-            prompt = sanitized_prompt
+            if pii_findings['detected']:
+                logger.warning(f"⚠️ LLM: PII detected in prompt - {pii_findings['pii_types']} found")
+                
+                # Log PII protection event
+                self.pii_protection_events.append({
+                    'timestamp': time.time(),
+                    'pii_types': pii_findings['pii_types'],
+                    'risk_level': pii_findings['risk_level'],
+                    'context': 'llm_prompt',
+                    'action': 'sanitized'
+                })
+                
+                # Sanitize prompt before sending to external LLM
+                sanitized_prompt, sanitization_report = self.security_guard.sanitize_content_for_embedding(
+                    prompt, "llm_prompt"
+                )
+                
+                logger.info(f"🛡️ LLM: Prompt sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+                
+                # Use sanitized prompt for LLM call
+                prompt = sanitized_prompt
+            else:
+                logger.info("✅ LLM: No PII detected in prompt")
         else:
-            logger.info("✅ LLM: No PII detected in prompt")
+            logger.debug("🔒 LLM: PII scanning disabled, skipping scan")
         
         def llm_call():
             try:
                 if self.provider == "openai":
+                    logger.info(f"📤 Sending LLM request to OpenAI API:")
+                    logger.info(f"   📊 Model: {self.model_name}")
+                    logger.info(f"   🌡️ Temperature: {self.temperature}")
+                    logger.info(f"   📝 Prompt preview: {prompt[:200]}...")
+                    
                     response = self.client.chat.completions.create(
                         model=self.model_name,
                         messages=[{"role": "user", "content": prompt}],

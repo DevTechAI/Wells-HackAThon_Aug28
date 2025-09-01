@@ -18,6 +18,7 @@ sys.path.append('./backend')
 
 from chromadb_singleton import get_chromadb_singleton
 from llm_embedder import LLMEmbedder
+from security_guard import SecurityGuard
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -456,25 +457,24 @@ class LangGraphSchemaProcessor:
     def __init__(self, openai_api_key: str, chromadb_persist_dir: str = "./chroma_db"):
         self.openai_api_key = openai_api_key
         self.chromadb_persist_dir = chromadb_persist_dir
-        self.embedder = LLMEmbedder(openai_api_key)
+        self.embedder = LLMEmbedder(provider="openai", api_key=openai_api_key)
         self.chromadb = get_chromadb_singleton(chromadb_persist_dir)
         self.sql_processor = SQLFileProcessor("./db")
         
         # Initialize security guard for PII detection
-        from security_guard import SecurityGuard
         self.security_guard = SecurityGuard()
         
         # Track PII findings across the pipeline
         self.pii_findings = []
         
     async def process_schema_node(self, schemas: List[TableSchema]) -> List[Dict[str, Any]]:
-        """Node 1: Preprocess schema data"""
-        logger.info("🔄 Node 1: Preprocessing schema data...")
+        """Node 1: Preprocess schema data - FOCUSED ON ESSENTIAL SCHEMA + DISTINCT VALUES"""
+        logger.info("🔄 Node 1: Preprocessing essential schema data and distinct values...")
         
         schema_chunks = []
         
         for schema in schemas:
-            # Create detailed schema description
+            # Create focused schema description with only essential information
             schema_text = f"""
             Table: {schema.table_name}
             
@@ -493,7 +493,7 @@ class LangGraphSchemaProcessor:
                 for constraint in schema.unique_constraints:
                     schema_text += f"- {', '.join(constraint)}\n"
             
-            # Add distinct values information
+            # Add distinct values information - ESSENTIAL FOR WHERE CONDITIONS
             if schema.distinct_values:
                 schema_text += "\nDistinct Values (for WHERE conditions):\n"
                 for column_name, values in schema.distinct_values.items():
@@ -506,19 +506,8 @@ class LangGraphSchemaProcessor:
                         
                         schema_text += f"- {column_name}: {', '.join(formatted_values)}\n"
             
-            # Add value distributions for categorical data
-            if schema.value_distributions:
-                schema_text += "\nValue Distributions (common values):\n"
-                for column_name, distribution in schema.value_distributions.items():
-                    if distribution:
-                        top_values = list(distribution.items())[:5]  # Top 5 values
-                        formatted_dist = [f"'{val}' ({count})" for val, count in top_values]
-                        schema_text += f"- {column_name}: {', '.join(formatted_dist)}\n"
-            
-            if schema.sample_data:
-                schema_text += "\nSample Data:\n"
-                for i, row in enumerate(schema.sample_data[:3]):  # Limit to 3 samples
-                    schema_text += f"Row {i+1}: {row}\n"
+            # SKIP: Value distributions, sample data, and other non-essential information
+            # Focus only on schema structure and distinct values for WHERE conditions
             
             # PII Detection and Sanitization
             pii_findings = self.security_guard.detect_pii(schema_text, f"schema_{schema.table_name}")
@@ -540,6 +529,8 @@ class LangGraphSchemaProcessor:
                     "column_count": len(schema.columns),
                     "has_primary_key": schema.primary_key is not None,
                     "unique_constraints_count": len(schema.unique_constraints or []),
+                    "distinct_values_count": len(schema.distinct_values or {}),
+                    "content_type": "essential_schema",
                     "pii_detected": True,
                     "pii_types": pii_findings['pii_types'],
                     "risk_level": pii_findings['risk_level'],
@@ -550,30 +541,40 @@ class LangGraphSchemaProcessor:
                     "table_name": schema.table_name,
                     "column_count": len(schema.columns),
                     "has_primary_key": schema.primary_key is not None,
-                    "unique_constraints_count": len(schema.unique_constraints or [])
+                    "unique_constraints_count": len(schema.unique_constraints or []),
+                    "distinct_values_count": len(schema.distinct_values or {}),
+                    "content_type": "essential_schema"
                 }
             
             schema_chunks.append({
                 "table_name": schema.table_name,
                 "content": schema_text,
-                "type": "schema",
+                "type": "essential_schema",
                 "metadata": metadata
             })
         
-        logger.info(f"✅ Preprocessed {len(schema_chunks)} schema chunks")
+        logger.info(f"✅ Preprocessed {len(schema_chunks)} essential schema chunks (schema + distinct values only)")
         return schema_chunks
     
     async def generate_embeddings_node(self, schema_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Node 2: Generate embeddings for schema chunks"""
+        """Node 2: Generate embeddings for schema chunks using batch processing"""
         logger.info("🔄 Node 2: Generating embeddings...")
         
-        embedded_chunks = []
+        if not schema_chunks:
+            logger.warning("⚠️ No schema chunks to process")
+            return []
         
-        for chunk in schema_chunks:
-            try:
-                # Generate embedding
-                embedding = self.embedder.generate_embedding(chunk["content"])
-                
+        # Extract all content for batch processing
+        contents = [chunk["content"] for chunk in schema_chunks]
+        
+        try:
+            # Use batch processing for efficiency
+            logger.info(f"🔄 Generating batch embeddings for {len(contents)} schema chunks")
+            embeddings = self.embedder.generate_embeddings_batch(contents)
+            
+            # Combine chunks with their embeddings
+            embedded_chunks = []
+            for i, (chunk, embedding) in enumerate(zip(schema_chunks, embeddings)):
                 if embedding:
                     embedded_chunk = {
                         **chunk,
@@ -585,8 +586,29 @@ class LangGraphSchemaProcessor:
                 else:
                     logger.warning(f"⚠️ Failed to generate embedding for {chunk['table_name']}")
                     
-            except Exception as e:
-                logger.error(f"❌ Error generating embedding for {chunk['table_name']}: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error in batch embedding generation: {e}")
+            logger.info("🔄 Falling back to individual embedding generation")
+            
+            # Fallback to individual processing
+            embedded_chunks = []
+            for chunk in schema_chunks:
+                try:
+                    embedding = self.embedder.generate_embedding(chunk["content"])
+                    
+                    if embedding:
+                        embedded_chunk = {
+                            **chunk,
+                            "embedding": embedding,
+                            "embedding_generated": True
+                        }
+                        embedded_chunks.append(embedded_chunk)
+                        logger.info(f"✅ Generated individual embedding for {chunk['table_name']}")
+                    else:
+                        logger.warning(f"⚠️ Failed to generate individual embedding for {chunk['table_name']}")
+                        
+                except Exception as individual_error:
+                    logger.error(f"❌ Error generating individual embedding for {chunk['table_name']}: {individual_error}")
         
         logger.info(f"✅ Generated embeddings for {len(embedded_chunks)} chunks")
         return embedded_chunks
@@ -668,54 +690,20 @@ class LangGraphSchemaProcessor:
             return {}
     
     async def store_sql_embeddings_node(self, sql_chunks: Dict[str, List[Dict[str, Any]]]) -> bool:
-        """Node 6: Store SQL file embeddings in ChromaDB"""
-        logger.info("🔄 Node 6: Storing SQL file embeddings...")
+        """Node 6: Store SQL file embeddings in ChromaDB - SKIPPING EMBEDDING GENERATION"""
+        logger.info("🔄 Node 6: Skipping SQL file embedding generation to reduce API calls...")
         
         try:
-            total_stored = 0
+            total_chunks = sum(len(chunks) for chunks in sql_chunks.values())
+            logger.info(f"⏭️ Skipped embedding generation for {total_chunks} SQL chunks")
+            logger.info(f"💡 SQL files processed but not embedded: {list(sql_chunks.keys())}")
             
-            for file_type, chunks in sql_chunks.items():
-                if not chunks:
-                    continue
-                
-                # Generate embeddings for each chunk
-                embedded_chunks = []
-                for chunk in chunks:
-                    try:
-                        embedding = self.embedder.generate_embedding(chunk["content"])
-                        if embedding:
-                            embedded_chunk = {
-                                **chunk,
-                                "embedding": embedding,
-                                "embedding_generated": True
-                            }
-                            embedded_chunks.append(embedded_chunk)
-                    except Exception as e:
-                        logger.error(f"❌ Error generating embedding for {chunk['id']}: {e}")
-                
-                if embedded_chunks:
-                    # Prepare data for ChromaDB
-                    documents = [chunk["content"] for chunk in embedded_chunks]
-                    metadatas = [chunk["metadata"] for chunk in embedded_chunks]
-                    ids = [chunk["id"] for chunk in embedded_chunks]
-                    
-                    # Store in ChromaDB
-                    collection_name = f"sql_{file_type}"
-                    success = self.chromadb.add_documents(
-                        collection_name=collection_name,
-                        documents=documents,
-                        metadatas=metadatas,
-                        ids=ids
-                    )
-                    
-                    if success:
-                        logger.info(f"✅ Stored {len(embedded_chunks)} {file_type} embeddings in ChromaDB")
-                        total_stored += len(embedded_chunks)
-                    else:
-                        logger.error(f"❌ Failed to store {file_type} embeddings")
+            # Return success without generating embeddings
+            return True
             
-            logger.info(f"✅ Total SQL embeddings stored: {total_stored}")
-            return total_stored > 0
+        except Exception as e:
+            logger.error(f"❌ Error in SQL processing: {e}")
+            return False
     
     def get_pii_findings(self) -> List[Dict[str, Any]]:
         """Get all PII findings from the pipeline"""
@@ -753,102 +741,20 @@ class LangGraphSchemaProcessor:
                 summary['contexts'].append(context)
         
         return summary
-            
-        except Exception as e:
-            logger.error(f"❌ Error storing SQL embeddings: {e}")
-            return False
     
     async def process_relationships_node(self, relationships: List[EntityRelationship]) -> bool:
-        logger.info("🔄 Processing entity relationships...")
+        """Node 7: Process entity relationships - SKIPPED FOR ESSENTIAL SCHEMA ONLY"""
+        logger.info("⏭️ Node 7: Skipping entity relationships processing (focusing on essential schema only)")
         
         try:
-            # Generate Mermaid diagram
-            diagram_generator = MermaidDiagramGenerator(self.openai_api_key)
+            logger.info(f"⏭️ Skipped processing {len(relationships)} entity relationships")
+            logger.info("💡 Entity relationships disabled to focus on schema structure and distinct values")
             
-            # Get schemas for diagram generation
-            analyzer = SchemaAnalyzer()
-            schemas = analyzer.get_table_schemas()
-            
-            mermaid_diagram = diagram_generator.generate_er_diagram(schemas, relationships)
-            
-            # Create relationship descriptions
-            relationship_chunks = []
-            
-            for rel in relationships:
-                rel_text = f"""
-                Entity Relationship:
-                Source Table: {rel.source_table}
-                Target Table: {rel.target_table}
-                Relationship Type: {rel.relationship_type}
-                Source Column: {rel.source_column}
-                Target Column: {rel.target_column}
-                Description: {rel.description}
-                """
-                
-                relationship_chunks.append({
-                    "content": rel_text,
-                    "type": "relationship",
-                    "metadata": {
-                        "source_table": rel.source_table,
-                        "target_table": rel.target_table,
-                        "relationship_type": rel.relationship_type,
-                        "source_column": rel.source_column,
-                        "target_column": rel.target_column
-                    }
-                })
-            
-            # Add Mermaid diagram
-            diagram_chunk = {
-                "content": f"Entity Relationship Diagram:\n```mermaid\n{mermaid_diagram}\n```",
-                "type": "mermaid_diagram",
-                "metadata": {
-                    "diagram_type": "entity_relationship",
-                    "tables_count": len(schemas),
-                    "relationships_count": len(relationships)
-                }
-            }
-            
-            relationship_chunks.append(diagram_chunk)
-            
-            # Generate embeddings for relationships
-            embedded_relationships = []
-            for chunk in relationship_chunks:
-                try:
-                    embedding = self.embedder.generate_embedding(chunk["content"])
-                    if embedding:
-                        embedded_chunk = {
-                            **chunk,
-                            "embedding": embedding,
-                            "embedding_generated": True
-                        }
-                        embedded_relationships.append(embedded_chunk)
-                except Exception as e:
-                    logger.error(f"❌ Error generating relationship embedding: {e}")
-            
-            # Store relationship embeddings
-            if embedded_relationships:
-                documents = [chunk["content"] for chunk in embedded_relationships]
-                metadatas = [chunk["metadata"] for chunk in embedded_relationships]
-                ids = [f"relationship_{i}" for i in range(len(embedded_relationships))]
-                
-                success = self.chromadb.add_documents(
-                    collection_name="entity_relationships",
-                    documents=documents,
-                    metadatas=metadatas,
-                    ids=ids
-                )
-                
-                if success:
-                    logger.info(f"✅ Stored {len(embedded_relationships)} relationship embeddings")
-                    return True
-                else:
-                    logger.error("❌ Failed to store relationship embeddings")
-                    return False
-            
+            # Return success without processing relationships
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error processing relationships: {e}")
+            logger.error(f"❌ Error in relationships processing: {e}")
             return False
     
     async def run_pipeline(self, db_path: str = "./banking.db") -> bool:
@@ -884,6 +790,21 @@ class LangGraphSchemaProcessor:
                 
         except Exception as e:
             logger.error(f"❌ Error in LangGraph pipeline: {e}")
+            return False
+    
+    def run_schema_initialization_pipeline(self) -> bool:
+        """Synchronous wrapper for the async pipeline - for Streamlit compatibility"""
+        logger.info("🔄 Running schema initialization pipeline (sync wrapper)...")
+        
+        try:
+            import asyncio
+            
+            # Run the async pipeline
+            result = asyncio.run(self.run_pipeline())
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error in schema initialization pipeline: {e}")
             return False
 
 def initialize_chromadb_with_schema(openai_api_key: str, db_path: str = "./banking.db", chromadb_persist_dir: str = "./chroma_db"):

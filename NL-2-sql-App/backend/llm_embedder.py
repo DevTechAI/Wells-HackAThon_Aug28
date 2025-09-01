@@ -9,7 +9,7 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 import chromadb
-from chromadb.config import Settings
+from chromadb.config import Settings as ChromaSettings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +41,11 @@ class LLMEmbedder:
         
         # Track PII protection events
         self.pii_protection_events = []
+        
+        # Track API call statistics
+        self.api_call_count = 0
+        self.batch_api_call_count = 0
+        self.total_tokens_processed = 0
         
         logger.info(f"🧠 Initializing LLM Embedder with provider: {provider} and PII protection")
         self._initialize_client()
@@ -78,40 +83,61 @@ class LLMEmbedder:
     
     def generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with PII protection"""
-        # PII Protection: Scan text before sending to external LLM
-        logger.info("🔒 LLM Embedder: Scanning text for PII before embedding generation")
-        pii_findings = self.security_guard.detect_pii(text, "embedding_text")
         
-        if pii_findings['detected']:
-            logger.warning(f"⚠️ LLM Embedder: PII detected in text - {pii_findings['pii_types']} found")
+        # Check if PII scanning is enabled before processing
+        if self.security_guard.enable_pii_scanning:
+            # PII Protection: Scan text before sending to external LLM
+            logger.info("🔒 LLM Embedder: Scanning text for PII before embedding generation")
+            pii_findings = self.security_guard.detect_pii(text, "embedding_text")
             
-            # Log PII protection event
-            self.pii_protection_events.append({
-                'timestamp': time.time(),
-                'pii_types': pii_findings['pii_types'],
-                'risk_level': pii_findings['risk_level'],
-                'context': 'embedding_text',
-                'action': 'sanitized'
-            })
-            
-            # Sanitize text before sending to external LLM
-            sanitized_text, sanitization_report = self.security_guard.sanitize_content_for_embedding(
-                text, "embedding_text"
-            )
-            
-            logger.info(f"🛡️ LLM Embedder: Text sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
-            
-            # Use sanitized text for embedding
-            text = sanitized_text
+            if pii_findings['detected']:
+                logger.warning(f"⚠️ LLM Embedder: PII detected in text - {pii_findings['pii_types']} found")
+                
+                # Log PII protection event
+                self.pii_protection_events.append({
+                    'timestamp': time.time(),
+                    'pii_types': pii_findings['pii_types'],
+                    'risk_level': pii_findings['risk_level'],
+                    'context': 'embedding_text',
+                    'action': 'sanitized'
+                })
+                
+                # Sanitize text before sending to external LLM
+                sanitized_text, sanitization_report = self.security_guard.sanitize_content_for_embedding(
+                    text, "embedding_text"
+                )
+                
+                logger.info(f"🛡️ LLM Embedder: Text sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+                
+                # Use sanitized text for embedding
+                text = sanitized_text
+            else:
+                logger.info("✅ LLM Embedder: No PII detected in text")
         else:
-            logger.info("✅ LLM Embedder: No PII detected in text")
+            logger.debug("🔒 LLM Embedder: PII scanning disabled, skipping scan")
         
         try:
             if self.provider == "openai":
+                logger.info(f"📤 Sending single request to OpenAI API:")
+                logger.info(f"   📊 Model: {self.model_name}")
+                logger.info(f"   📝 Text preview: {text[:100]}...")
+                
+                # Increment API call counter
+                self.api_call_count += 1
+                self.total_tokens_processed += len(text.split())
+                
+                # Log the actual request payload
+                request_payload = {
+                    "input": text,
+                    "model": self.model_name
+                }
+                logger.info(f"📦 Request payload: {request_payload}")
+                
                 response = self.client.embeddings.create(
                     input=text,
                     model=self.model_name
                 )
+                logger.info(f"✅ Single API call #{self.api_call_count} completed")
                 return response.data[0].embedding
                 
             elif self.provider == "anthropic":
@@ -174,13 +200,125 @@ class LLMEmbedder:
         
         return summary
     
+    def get_api_call_statistics(self) -> Dict[str, Any]:
+        """Get API call statistics"""
+        return {
+            'total_api_calls': self.api_call_count + self.batch_api_call_count,
+            'single_api_calls': self.api_call_count,
+            'batch_api_calls': self.batch_api_call_count,
+            'total_tokens_processed': self.total_tokens_processed,
+            'average_tokens_per_call': self.total_tokens_processed / max(1, self.api_call_count + self.batch_api_call_count)
+        }
+    
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts"""
-        embeddings = []
-        for text in texts:
-            embedding = self.generate_embedding(text)
-            embeddings.append(embedding)
-        return embeddings
+        """Generate embeddings for multiple texts using batch processing"""
+        if not texts:
+            return []
+        
+        logger.info(f"🔄 Generating batch embeddings for {len(texts)} texts")
+        
+        # Check if PII scanning is enabled before processing
+        if self.security_guard.enable_pii_scanning:
+            logger.info("🔒 LLM Embedder: Scanning batch texts for PII before embedding generation")
+            sanitized_texts = []
+            
+            for i, text in enumerate(texts):
+                pii_findings = self.security_guard.detect_pii(text, f"batch_embedding_text_{i}")
+                
+                if pii_findings['detected']:
+                    logger.warning(f"⚠️ LLM Embedder: PII detected in batch text {i} - {pii_findings['pii_types']} found")
+                    
+                    # Log PII protection event
+                    self.pii_protection_events.append({
+                        'timestamp': time.time(),
+                        'pii_types': pii_findings['pii_types'],
+                        'risk_level': pii_findings['risk_level'],
+                        'context': f'batch_embedding_text_{i}',
+                        'action': 'sanitized'
+                    })
+                    
+                    # Sanitize text before sending to external LLM
+                    sanitized_text, sanitization_report = self.security_guard.sanitize_content_for_embedding(
+                        text, f"batch_embedding_text_{i}"
+                    )
+                    
+                    logger.info(f"🛡️ LLM Embedder: Batch text {i} sanitized - {sanitization_report['pii_removed']} removed, {sanitization_report['pii_masked']} masked")
+                    sanitized_texts.append(sanitized_text)
+                else:
+                    sanitized_texts.append(text)
+        else:
+            logger.debug("🔒 LLM Embedder: PII scanning disabled, using original texts for batch")
+            sanitized_texts = texts
+        
+        try:
+            if self.provider == "openai":
+                # Use batch processing for OpenAI
+                logger.info(f"📤 Sending batch request to OpenAI API:")
+                logger.info(f"   📊 Model: {self.model_name}")
+                logger.info(f"   📝 Input texts count: {len(sanitized_texts)}")
+                logger.info(f"   📄 First text preview: {sanitized_texts[0][:100]}..." if sanitized_texts else "   📄 No texts")
+                logger.info(f"   📄 Last text preview: {sanitized_texts[-1][:100]}..." if len(sanitized_texts) > 1 else "")
+                
+                # Increment batch API call counter
+                self.batch_api_call_count += 1
+                self.total_tokens_processed += sum(len(text.split()) for text in sanitized_texts)
+                
+                # Log the actual batch request payload
+                request_payload = {
+                    "input": sanitized_texts,
+                    "model": self.model_name
+                }
+                logger.info(f"📦 Batch request payload: {request_payload}")
+                
+                response = self.client.embeddings.create(
+                    input=sanitized_texts,
+                    model=self.model_name
+                )
+                embeddings = [data.embedding for data in response.data]
+                logger.info(f"✅ Batch API call #{self.batch_api_call_count} completed - {len(embeddings)} embeddings generated")
+                return embeddings
+                
+            elif self.provider == "anthropic":
+                # Use batch processing for Anthropic
+                response = self.client.embeddings.create(
+                    input=sanitized_texts,
+                    model=self.model_name
+                )
+                embeddings = [data.embedding for data in response.data]
+                logger.info(f"✅ Generated batch embeddings for {len(embeddings)} texts using Anthropic")
+                return embeddings
+                
+            elif self.provider == "google":
+                # Google doesn't support batch embeddings in the same way, so we'll process individually
+                logger.warning("⚠️ Google provider doesn't support batch embeddings, processing individually")
+                embeddings = []
+                for text in sanitized_texts:
+                    response = self.client.embed_content(
+                        model=self.model_name,
+                        content=text
+                    )
+                    embeddings.append(response.embedding)
+                logger.info(f"✅ Generated individual embeddings for {len(embeddings)} texts using Google")
+                return embeddings
+                
+            elif self.provider == "local":
+                # For local models, you might use a different approach
+                logger.warning("⚠️ Local batch embedding generation not implemented")
+                return [[0.0] * 1536 for _ in sanitized_texts]  # Placeholder embeddings
+                
+        except Exception as e:
+            logger.error(f"❌ Error generating batch embeddings: {e}")
+            # Fallback to individual processing if batch fails
+            logger.info("🔄 Falling back to individual embedding generation")
+            embeddings = []
+            for text in sanitized_texts:
+                try:
+                    embedding = self.generate_embedding(text)
+                    embeddings.append(embedding)
+                except Exception as individual_error:
+                    logger.error(f"❌ Error generating individual embedding: {individual_error}")
+                    embeddings.append([0.0] * 1536)  # Placeholder embedding
+            return embeddings
 
 class ChromaDBManager:
     """ChromaDB manager for vector storage"""
@@ -202,7 +340,7 @@ class ChromaDBManager:
             # Always try to create a client - ChromaDB handles existing instances gracefully
             self.client = chromadb.PersistentClient(
                 path=self.persist_dir,
-                settings=Settings(
+                settings=ChromaSettings(
                     anonymized_telemetry=False,
                     allow_reset=True
                 )
