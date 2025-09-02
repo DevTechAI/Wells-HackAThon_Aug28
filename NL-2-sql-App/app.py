@@ -259,7 +259,8 @@ with main_tab:
                     # Create DataFrame and display
                     df = pd.DataFrame(resp["table"])
                     if not df.empty:
-                        st.dataframe(df, width='stretch')
+                        st.dataframe(df, width='stretch'
+                        )
                         
                         # Add download button for results
                         csv = df.to_csv(index=False)

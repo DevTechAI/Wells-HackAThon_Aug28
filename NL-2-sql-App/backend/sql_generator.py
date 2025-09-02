@@ -357,7 +357,7 @@ class SQLGeneratorAgent:
                 
                 # Get response from LLM
                 response = self.llm_provider.generate_text(
-                    prompt,
+                prompt,
                     temperature=self.temperature + (0.1 * (3 - attempts_left)),
                     max_tokens=512
                 )
