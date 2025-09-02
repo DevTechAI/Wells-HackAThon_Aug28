@@ -176,7 +176,6 @@ with main_tab:
                 # Re-run button
                 if st.button(f"🔄 Re-run: {user_query[:30]}{'...' if len(user_query) > 30 else ''}", key=f"rerun_{i}"):
                     st.session_state.rerun_query = user_query
-                    st.rerun()
                 
                 st.markdown(f"**Your Question:** {user_query}")
                 st.divider()
@@ -246,7 +245,7 @@ with main_tab:
         # Clear history button
         if st.button("🗑️ Clear Conversation History"):
             st.session_state.conversation_history = []
-    st.rerun()
+
 
 with agents_tab:
     # Display detailed agent information
