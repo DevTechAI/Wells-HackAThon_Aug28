@@ -481,6 +481,99 @@ class PromptingAgent:
             logger.error(f"❌ Error building prompt: {str(e)}")
             raise
 
+    def build_error_correction_prompt(self, error_context: Dict[str, Any]) -> str:
+        """Build a comprehensive prompt for SQL error correction"""
+        
+        nl_query = error_context["nl_query"]
+        original_sql = error_context["original_sql"]
+        error_msg = error_context["error_message"]
+        attempt = error_context["attempt_number"]
+        
+        # Load schema metadata
+        schema_metadata = error_context.get("schema_metadata", {})
+        
+        prompt = f"""
+# SQL Query Error Correction
+
+## User's Natural Language Query:
+{nl_query}
+
+## Original SQL Query (with error):
+```sql
+{original_sql}
+```
+
+## Error Message:
+{error_msg}
+
+## Database Schema Information:
+{self._format_schema_for_prompt(schema_metadata)}
+
+## Retriever Context:
+{self._format_retriever_context(error_context.get("retriever_context", {}))}
+
+## Correction Guidelines:
+1. **Analyze the error**: Understand what caused the SQL to fail
+2. **Check column names**: Ensure all columns exist in the specified tables
+3. **Verify table relationships**: Use correct JOIN conditions based on foreign keys
+4. **Fix syntax issues**: Correct any SQL syntax errors
+5. **Simplify if needed**: Remove problematic columns or conditions if necessary
+
+## Output Format:
+Return a JSON object with the following structure:
+```json
+{{
+    "SQLQuery": "SELECT ... FROM ... WHERE ...",
+    "Suggestion": "Explanation of the correction made"
+}}
+```
+
+## Important Notes:
+- Use only columns that exist in the schema
+- Ensure proper table joins based on foreign key relationships
+- If the error persists after 3 attempts, create a simplified query
+- Focus on the core intent of the user's question
+
+Please provide the corrected SQL query:
+"""
+        
+        return prompt
+
+    def _format_schema_for_prompt(self, schema_metadata: Dict[str, Any]) -> str:
+        """Format schema metadata for prompt inclusion"""
+        if not schema_metadata:
+            return "Schema metadata not available"
+        
+        formatted = []
+        for table_name, table_info in schema_metadata.get("tables", {}).items():
+            formatted.append(f"\n### Table: {table_name}")
+            formatted.append(f"Description: {table_info.get('description', 'N/A')}")
+            
+            for col_name, col_info in table_info.get("columns", {}).items():
+                data_type = col_info.get("data_type", "unknown")
+                distinct_values = col_info.get("distinct_values", [])
+                formatted.append(f"- {col_name} ({data_type})")
+                if distinct_values:
+                    formatted.append(f"  Valid values: {', '.join(distinct_values[:5])}{'...' if len(distinct_values) > 5 else ''}")
+        
+        return "\n".join(formatted)
+
+    def _format_retriever_context(self, retriever_context: Dict[str, Any]) -> str:
+        """Format retriever context for prompt inclusion"""
+        if not retriever_context:
+            return "No retriever context available"
+        
+        formatted = []
+        if retriever_context.get("schema_context"):
+            formatted.append("### Schema Context:")
+            for ctx in retriever_context["schema_context"][:3]:  # Limit to 3 items
+                formatted.append(f"- {ctx}")
+        
+        if retriever_context.get("tables_found"):
+            formatted.append(f"\n### Detected Tables: {', '.join(retriever_context['tables_found'])}")
+        
+        return "\n".join(formatted)
+
     def _find_relevant_examples(self, query: str, detected_tables: List[str]) -> List[QueryExample]:
         """Find relevant example queries based on similarity"""
         try:

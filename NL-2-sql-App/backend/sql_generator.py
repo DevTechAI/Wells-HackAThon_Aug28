@@ -185,20 +185,171 @@ class SQLGeneratorAgent:
             logger.error(f"Error cleaning LLM response: {str(err)}")
             return response.strip()
 
+    def _try_llm_error_correction(self, query: str, original_sql: str, error_msg: str, 
+                                 context: Dict[str, Any], attempt: int) -> Tuple[bool, str, Optional[str]]:
+        """Try to correct SQL using LLM with full error context"""
+        
+        # Build comprehensive error correction context
+        error_context = {
+            "nl_query": query,
+            "original_sql": original_sql,
+            "error_message": error_msg,
+            "attempt_number": attempt,
+            "schema_metadata": self.metadata_loader.get_metadata(),
+            "retriever_context": context.get("retrieval_context", {}),
+            "detected_tables": context.get("detected_tables", []),
+            "detected_capabilities": context.get("detected_capabilities", [])
+        }
+        
+        # Build enhanced prompt for error correction
+        correction_prompt = self.prompting_agent.build_error_correction_prompt(error_context)
+        
+        logger.info(f"\n🔄 LLM Error Correction Attempt {attempt}")
+        logger.info(f"Error: {error_msg}")
+        
+        # Get response from LLM
+        response = self.llm_provider.generate_text(
+            correction_prompt,
+            temperature=0.1 + (0.1 * attempt),  # Increase temperature for creativity
+            max_tokens=512
+        )
+        
+        if response is None:
+            logger.error(f"LLM returned None response on correction attempt {attempt}")
+            return False, original_sql, None
+        
+        # Parse the response
+        corrected_sql, suggestion = self._parse_llm_response(response.strip())
+        if not corrected_sql:
+            logger.warning(f"LLM correction attempt {attempt} failed: Invalid response format")
+            return False, original_sql, None
+        
+        # Log the correction attempt
+        log_llm_interaction(correction_prompt, {"SQLQuery": corrected_sql, "Suggestion": suggestion}, attempt)
+        
+        return True, corrected_sql, suggestion
+
+    def _exclude_problematic_columns(self, sql: str, error_msg: str) -> str:
+        """Exclude problematic columns from SQL query"""
+        try:
+            # Parse error message to identify problematic columns
+            problematic_columns = self._extract_problematic_columns(error_msg)
+            
+            if not problematic_columns:
+                return sql
+            
+            # Create a simplified query without problematic columns
+            simplified_sql = self._create_simplified_query(sql, problematic_columns)
+            
+            logger.info(f"🔧 Excluded problematic columns: {problematic_columns}")
+            logger.info(f"Simplified SQL: {simplified_sql}")
+            
+            return simplified_sql
+            
+        except Exception as err:
+            logger.error(f"Error excluding problematic columns: {str(err)}")
+            return sql
+
+    def _extract_problematic_columns(self, error_msg: str) -> List[str]:
+        """Extract problematic column names from error message"""
+        problematic_columns = []
+        
+        # Common SQLite error patterns
+        error_patterns = [
+            r"no such column: (\w+)",
+            r"column (\w+) does not exist",
+            r"ambiguous column name: (\w+)"
+        ]
+        
+        import re
+        for pattern in error_patterns:
+            matches = re.findall(pattern, error_msg.lower())
+            problematic_columns.extend(matches)
+        
+        return list(set(problematic_columns))  # Remove duplicates
+
+    def _create_simplified_query(self, original_sql: str, excluded_columns: List[str]) -> str:
+        """Create a simplified query excluding problematic columns"""
+        try:
+            # Simple approach: remove problematic columns from SELECT clause
+            sql_lower = original_sql.lower()
+            
+            # Find SELECT clause
+            select_start = sql_lower.find("select")
+            if select_start == -1:
+                return original_sql
+            
+            # Find FROM clause
+            from_start = sql_lower.find("from", select_start)
+            if from_start == -1:
+                return original_sql
+            
+            # Extract SELECT clause
+            select_clause = original_sql[select_start:from_start]
+            
+            # Remove problematic columns
+            import re
+            for col in excluded_columns:
+                # Remove the column from SELECT clause
+                select_clause = re.sub(rf'\b{col}\b', '', select_clause, flags=re.IGNORECASE)
+                select_clause = re.sub(r',\s*,', ',', select_clause)  # Clean up double commas
+                select_clause = re.sub(r'^\s*,\s*', '', select_clause)  # Remove leading comma
+                select_clause = re.sub(r',\s*$', '', select_clause)  # Remove trailing comma
+            
+            # Reconstruct SQL
+            simplified_sql = select_clause + original_sql[from_start:]
+            
+            return simplified_sql
+            
+        except Exception as err:
+            logger.error(f"Error creating simplified query: {str(err)}")
+            return original_sql
+
+    def _test_sql_execution(self, sql: str) -> Dict[str, Any]:
+        """Test SQL execution against the database"""
+        try:
+            # Use the executor to test the SQL
+            from .executor import ExecutorAgent
+            executor = ExecutorAgent()
+            exec_result = executor.run_query(sql, limit=1)
+            return exec_result
+        except Exception as err:
+            return {"success": False, "error": str(err)}
+
     def _try_llm_generation(self, query: str, context: Dict[str, Any], attempts_left: int = 3) -> Tuple[bool, str, Optional[str]]:
-        """Try generating SQL using LLM with multiple attempts"""
+        """Try generating SQL using LLM with enhanced error correction"""
         error_context = None
         attempt_number = 1
+        current_sql = None
         
         while attempts_left > 0:
             try:
                 # Generate prompt using the prompting agent
-                prompt = self.prompting_agent.build_prompt(
-                    query=query,
-                    detected_tables=context.get("detected_tables", []),
-                    capabilities=context.get("detected_capabilities", []),
-                    error_context=error_context
-                )
+                if attempt_number == 1:
+                    # First attempt: normal generation
+                    prompt = self.prompting_agent.build_prompt(
+                        query=query,
+                        detected_tables=context.get("detected_tables", []),
+                        capabilities=context.get("detected_capabilities", []),
+                        error_context=error_context
+                    )
+                else:
+                    # Subsequent attempts: error correction
+                    if current_sql:
+                        success, corrected_sql, suggestion = self._try_llm_error_correction(
+                            query, current_sql, error_context, context, attempt_number
+                        )
+                        if success:
+                            current_sql = corrected_sql
+                            # Test the corrected SQL
+                            is_valid, error_msg = self.validator.validate_sql(corrected_sql)
+                            if is_valid:
+                                return True, corrected_sql, suggestion
+                            else:
+                                error_context = error_msg
+                                attempts_left -= 1
+                                attempt_number += 1
+                                continue
                 
                 # Log the attempt
                 logger.info(f"\n🔄 LLM Generation Attempt {attempt_number}")
@@ -230,36 +381,24 @@ class SQLGeneratorAgent:
                     attempt_number += 1
                     continue
                 
+                current_sql = sql
+                
                 # Log the successful parsing
                 log_llm_interaction(prompt, {"SQLQuery": sql, "Suggestion": suggestion}, attempt_number)
                 
-                # Validate the generated SQL
+                # Test the SQL against database
                 is_valid, error_msg = self.validator.validate_sql(sql)
                 if is_valid:
-                    # Add successful query to history
-                    self.prompting_agent.add_query_to_history(
-                        nl_query=query,
-                        sql=sql,
-                        suggestion=suggestion,
-                        success=True,
-                        reasoning=context.get("reasoning_steps", [])
-                    )
-                    return True, sql, suggestion
+                    # Test execution
+                    exec_result = self._test_sql_execution(sql)
+                    if exec_result.get("success"):
+                        return True, sql, suggestion
+                    else:
+                        error_context = exec_result.get("error", "Execution failed")
+                else:
+                    error_context = error_msg
                 
-                # If invalid, get error context for next attempt
-                error_context = self.validator.get_error_context(error_msg)
-                logger.warning(f"LLM attempt {attempt_number} failed validation: {error_msg}")
-                
-                # Add failed query to history
-                self.prompting_agent.add_query_to_history(
-                    nl_query=query,
-                    sql=sql,
-                    suggestion=suggestion,
-                    success=False,
-                    error_context=error_context,
-                    reasoning=context.get("reasoning_steps", [])
-                )
-                
+                logger.warning(f"LLM attempt {attempt_number} failed: {error_context}")
                 attempts_left -= 1
                 attempt_number += 1
                 
@@ -271,6 +410,15 @@ class SQLGeneratorAgent:
                 logger.error(f"LLM generation error on attempt {attempt_number}: {str(err)}")
                 attempts_left -= 1
                 attempt_number += 1
+        
+        # If all attempts failed, try column exclusion
+        if current_sql and error_context:
+            simplified_sql = self._exclude_problematic_columns(current_sql, error_context)
+            if simplified_sql != current_sql:
+                logger.info("🔧 Trying simplified query with problematic columns excluded")
+                is_valid, _ = self.validator.validate_sql(simplified_sql)
+                if is_valid:
+                    return True, simplified_sql, "Simplified query with problematic columns excluded"
         
         logger.error("❌ All LLM generation attempts failed")
         return False, "ERROR: Failed to generate valid SQL after multiple attempts", None

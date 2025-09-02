@@ -87,6 +87,9 @@ class NL2SQLPipeline:
             "conversation_state": plan.get("conversation_state", {}),
             "clarified_values": clarified_values or {},
             
+            # Add retriever context for error correction
+            "retrieval_context": ctx_bundle,
+            
             # Planner's analysis
             "planner_analysis": {
                 "capabilities": plan.get("capabilities", []),

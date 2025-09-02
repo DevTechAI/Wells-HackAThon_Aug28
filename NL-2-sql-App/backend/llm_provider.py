@@ -60,15 +60,24 @@ class OpenAIProvider(LLMProvider):
             logger.info("🤖 LLM PROVIDER - INPUT JSON:")
             logger.info("=" * 80)
             try:
-                # Try to parse as JSON for pretty printing
-                prompt_dict = json.loads(prompt)
-                logger.info(json.dumps(prompt_dict, indent=2))
-                logger.info("✅ Input successfully parsed as JSON")
+                # Check if prompt is already a dict
+                if isinstance(prompt, dict):
+                    logger.info(json.dumps(prompt, indent=2))
+                    logger.info("✅ Input is already a dictionary")
+                else:
+                    # Try to parse as JSON for pretty printing
+                    prompt_dict = json.loads(prompt)
+                    logger.info(json.dumps(prompt_dict, indent=2))
+                    logger.info("✅ Input successfully parsed as JSON")
             except json.JSONDecodeError:
                 # If not JSON, log as regular text
                 logger.info("Raw prompt (not JSON):")
                 logger.info(prompt)
                 logger.info("⚠️ Input is not valid JSON format")
+            except Exception as e:
+                logger.error(f"Error processing prompt: {str(e)}")
+                logger.info("Raw prompt:")
+                logger.info(prompt)
             logger.info("=" * 80)
             
             # Log additional parameters
