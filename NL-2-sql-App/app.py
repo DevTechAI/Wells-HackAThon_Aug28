@@ -170,27 +170,28 @@ with main_tab:
 
     # Display conversation history
     if st.session_state.conversation_history:
-        st.subheader("📝 Conversation History")
-        for i, (user_query, response) in enumerate(st.session_state.conversation_history):
-            with st.expander(f"💬 Q{i+1}: {user_query[:50]}{'...' if len(user_query) > 50 else ''}", expanded=False):
-                # Re-run button
-                if st.button(f"🔄 Re-run: {user_query[:30]}{'...' if len(user_query) > 30 else ''}", key=f"rerun_{i}"):
-                    st.session_state.rerun_query = user_query
-                
-                st.markdown(f"**Your Question:** {user_query}")
-                st.divider()
-                
-                if response.get("summary"):
-                    st.markdown(response.get("summary"))
-                
-                if response.get("sql"):
-                    with st.expander("🔧 SQL Query", expanded=False):
-                        st.code(response["sql"], language="sql")
-                
-                if response.get("table"):
-                    st.subheader("📋 Results")
-                    import pandas as pd
-                    st.dataframe(pd.DataFrame(response["table"]))
+        # Create collapsible conversation history section
+        with st.expander("📝 **Conversation History**", expanded=True):
+            for i, (user_query, response) in enumerate(st.session_state.conversation_history):
+                with st.expander(f"💬 Q{i+1}: {user_query[:50]}{'...' if len(user_query) > 50 else ''}", expanded=False):
+                    # Re-run button
+                    if st.button(f"🔄 Re-run: {user_query[:30]}{'...' if len(user_query) > 30 else ''}", key=f"rerun_{i}"):
+                        st.session_state.rerun_query = user_query
+                    
+                    st.markdown(f"**Your Question:** {user_query}")
+                    st.divider()
+                    
+                    if response.get("summary"):
+                        st.markdown(response.get("summary"))
+                    
+                    if response.get("sql"):
+                        with st.expander("🔧 SQL Query", expanded=False):
+                            st.code(response["sql"], language="sql")
+                    
+                    if response.get("table"):
+                        st.subheader("📋 Results")
+                        import pandas as pd
+                        st.dataframe(pd.DataFrame(response["table"]))
         
         st.divider()
 
