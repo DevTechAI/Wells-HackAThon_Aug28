@@ -2,12 +2,14 @@
 from typing import Dict, Any, List
 import pandas as pd
 from .metadata_loader import MetadataLoader
+from .logger_config import log_agent_flow
 
 class SummarizerAgent:
     def __init__(self, max_preview: int = 5):
         self.max_preview = max_preview
         self.metadata_loader = MetadataLoader()
 
+    @log_agent_flow("SummarizerAgent")
     def summarize(self, query: str, execution_result: Dict[str, Any]) -> Dict[str, Any]:
         """Generate insights from query results"""
         if not execution_result.get("success", False):

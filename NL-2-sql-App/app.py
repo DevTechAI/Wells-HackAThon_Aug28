@@ -191,7 +191,32 @@ with main_tab:
                     if response.get("table"):
                         st.subheader("📋 Results")
                         import pandas as pd
-                        st.dataframe(pd.DataFrame(response["table"]))
+                        
+                        # Display execution message if available
+                        if response.get("execution_message"):
+                            st.info(f"💡 {response['execution_message']}")
+                        
+                        # Display results count
+                        results_count = len(response["table"])
+                        st.markdown(f"**Found {results_count} record{'s' if results_count != 1 else ''}**")
+                        
+                        # Create DataFrame and display
+                        df = pd.DataFrame(response["table"])
+                        if not df.empty:
+                            st.dataframe(df, use_container_width=True)
+                            
+                            # Add download button for results
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Download Results as CSV",
+                                data=csv,
+                                file_name=f"query_results_{i+1}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.warning("No data found for this query.")
+                    elif response.get("success") and not response.get("table"):
+                        st.info("✅ Query executed successfully but returned no results.")
         
         st.divider()
 
@@ -222,7 +247,32 @@ with main_tab:
                 if resp.get("table"):
                     st.subheader("📋 Results")
                     import pandas as pd
-                    st.dataframe(pd.DataFrame(resp["table"]))
+                    
+                    # Display execution message if available
+                    if resp.get("execution_message"):
+                        st.info(f"💡 {resp['execution_message']}")
+                    
+                    # Display results count
+                    results_count = len(resp["table"])
+                    st.markdown(f"**Found {results_count} record{'s' if results_count != 1 else ''}**")
+                    
+                    # Create DataFrame and display
+                    df = pd.DataFrame(resp["table"])
+                    if not df.empty:
+                        st.dataframe(df, use_container_width=True)
+                        
+                        # Add download button for results
+                        csv = df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Results as CSV",
+                            data=csv,
+                            file_name=f"query_results_{len(st.session_state.conversation_history)}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.warning("No data found for this query.")
+                elif resp.get("success") and not resp.get("table"):
+                    st.info("✅ Query executed successfully but returned no results.")
                 
                 # Show suggestions
                 if resp.get("suggestions"):

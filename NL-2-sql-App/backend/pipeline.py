@@ -129,7 +129,7 @@ class NL2SQLPipeline:
 
             # 5) Execute
             t4 = time.time()
-            exec_result = self.executor.run_query(sql, limit=self.cfg.sql_row_limit)
+            exec_result = self.executor.run_query(sql, limit=self.cfg.sql_row_limit, validation_context=validation_result)
             diag.timings_ms["execution"] = int((time.time() - t4) * 1000)
 
             if exec_result.get("success"):
@@ -152,7 +152,9 @@ class NL2SQLPipeline:
                     "execution_info": {
                         "retries": diag.retries,
                         "timings_ms": diag.timings_ms
-                    }
+                    },
+                    "table": exec_result.get("results", []),  # Add execution results for UI display
+                    "execution_message": exec_result.get("message", "")  # Add execution message
                 })
                 
                 return out
