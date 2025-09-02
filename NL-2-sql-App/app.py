@@ -203,7 +203,7 @@ with main_tab:
                         # Create DataFrame and display
                         df = pd.DataFrame(response["table"])
                         if not df.empty:
-                            st.dataframe(df, use_container_width=True)
+                            st.dataframe(df, width='stretch')
                             
                             # Add download button for results
                             csv = df.to_csv(index=False)
@@ -234,7 +234,7 @@ with main_tab:
                 
                 # Show summary
                 if resp.get("summary"): 
-                    st.markdown("### 📊 **Analysis:**")
+                    st.markdown("### 📊 **Data Insights:**")
                     st.markdown(resp.get("summary"))
                     st.divider()
                 
@@ -259,7 +259,7 @@ with main_tab:
                     # Create DataFrame and display
                     df = pd.DataFrame(resp["table"])
                     if not df.empty:
-                        st.dataframe(df, use_container_width=True)
+                        st.dataframe(df, width='stretch')
                         
                         # Add download button for results
                         csv = df.to_csv(index=False)

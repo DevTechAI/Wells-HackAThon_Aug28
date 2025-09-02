@@ -31,7 +31,7 @@ class LLMProvider(ABC):
     def generate_text(self, prompt: str, **kwargs) -> Optional[str]:
         """Generate text from prompt"""
         pass
-    
+
     @abstractmethod
     def generate_embeddings(self, texts: List[str]) -> Optional[List[List[float]]]:
         """Generate embeddings for texts"""
@@ -52,14 +52,7 @@ class OpenAIProvider(LLMProvider):
         self.client = OpenAI(api_key=self.api_key)
         logger.info(f"✅ Initialized OpenAI provider with model: {self.model}")
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type(Exception),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying after error (attempt {retry_state.attempt_number}/3)..."
-        )
-    )
+
     def generate_text(self, prompt: str, **kwargs) -> Optional[str]:
         """Generate text using OpenAI's chat completion"""
         try:
@@ -139,14 +132,7 @@ class OpenAIProvider(LLMProvider):
             log_openai_error(e)
             return None
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type(Exception),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying embedding generation (attempt {retry_state.attempt_number}/3)..."
-        )
-    )
+
     def generate_embeddings(self, texts: List[str]) -> Optional[List[List[float]]]:
         """Generate embeddings using OpenAI's embedding model"""
         try:
