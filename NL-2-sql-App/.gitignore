@@ -1,1 +1,6 @@
-__pycache__/\n.venv/\n.env\nchroma_db/\n.DS_Store\n
+__pycache__/
+.venv/
+.env
+chroma_db/
+.DS_Store
+/logs/

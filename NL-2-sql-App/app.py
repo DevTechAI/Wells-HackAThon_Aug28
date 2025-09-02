@@ -11,6 +11,8 @@ from backend.executor import ExecutorAgent
 from backend.summarizer import SummarizerAgent
 from backend.logger_config import log_agent_flow, get_agent_flow_data
 from frontend.agent_tabs_ui import render_agent_tabs
+from db.init_db import init_db
+from backend.schema_processor import initialize_schema
 
 # Load environment variables
 load_dotenv()
@@ -20,12 +22,96 @@ DB_PATH = os.getenv("SQLITE_DB_PATH", "banking.db")
 CHROMA_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 
 # Schema definition
+# Schema definition
 schema_tables = {
     "accounts": ["id", "customer_id", "account_number", "type", "balance", "opened_at", "interest_rate", "status", "branch_id", "created_at", "updated_at"],
     "branches": ["id", "name", "address", "city", "state", "zip_code", "manager_id", "created_at", "updated_at"],
+    "customers": ["id", "email", "phone", "address", "first_name", "last_name", "date_of_birth", "gender", "national_id", "created_at", "updated_at", "branch_id"],
     "employees": ["id", "branch_id", "name", "email", "phone", "position", "hire_date", "salary", "created_at", "updated_at"],
     "transactions": ["id", "account_id", "transaction_date", "amount", "type", "description", "status", "created_at", "updated_at", "employee_id"]
 }
+def show_system_status():
+    """Display system initialization status"""
+    st.sidebar.markdown("### 🔧 System Status")
+    
+    # Database Status
+    if os.path.exists(DB_PATH):
+        st.sidebar.success("✅ Database: Connected")
+        try:
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table';")
+            table_count = cursor.fetchone()[0]
+            st.sidebar.markdown(f"📊 Tables: {table_count}")
+            
+            # Show table counts
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            for table in tables:
+                cursor.execute(f"SELECT COUNT(*) FROM {table[0]};")
+                count = cursor.fetchone()[0]
+                st.sidebar.markdown(f"• {table[0]}: {count:,} rows")
+            conn.close()
+        except Exception as e:
+            st.sidebar.error(f"❌ Database Error: {str(e)}")
+    else:
+        st.sidebar.error("❌ Database: Not Found")
+    
+    # ChromaDB Status
+    if os.path.exists(CHROMA_PATH):
+        st.sidebar.success("✅ ChromaDB: Connected")
+        try:
+            import chromadb
+            client = chromadb.PersistentClient(path=CHROMA_PATH)
+            collection = client.get_collection("database_schema")
+            st.sidebar.markdown(f"📚 Schema Embeddings: {collection.count()} chunks")
+        except Exception as e:
+            st.sidebar.error(f"❌ ChromaDB Error: {str(e)}")
+    else:
+        st.sidebar.error("❌ ChromaDB: Not Found")
+
+    # Reinitialize Button
+    if st.sidebar.button("🔄 Reinitialize System"):
+        st.session_state.system_initialized = False
+        st.rerun()
+
+# Initialize system
+def initialize_system():
+    """Initialize database and schema embeddings"""
+    status = {"success": True, "messages": []}
+    
+    try:
+        # Initialize SQLite database
+        with st.spinner("🔄 Initializing database..."):
+            try:
+                init_db()
+                status["messages"].append("✅ Database initialized successfully!")
+            except Exception as e:
+                status["success"] = False
+                status["messages"].append(f"❌ Database initialization failed: {str(e)}")
+        
+        # Initialize schema embeddings
+        with st.spinner("🔄 Initializing schema embeddings..."):
+            try:
+                initialize_schema()
+                status["messages"].append("✅ Schema embeddings initialized successfully!")
+            except Exception as e:
+                status["success"] = False
+                status["messages"].append(f"❌ Schema initialization failed: {str(e)}")
+        
+        # Display initialization messages
+        for msg in status["messages"]:
+            if "❌" in msg:
+                st.error(msg)
+            else:
+                st.success(msg)
+        
+        return status["success"]
+            
+    except Exception as e:
+        st.error(f"❌ System initialization failed: {str(e)}")
+        return False
 
 # Initialize agents
 @log_agent_flow("initialize_pipeline")
@@ -49,6 +135,20 @@ def initialize_pipeline():
 st.set_page_config(layout="wide")
 st.title("🤖 NL→SQL Assistant")
 
+# Show system status in sidebar
+show_system_status()
+
+# Initialize system if not done
+if "system_initialized" not in st.session_state or not st.session_state.system_initialized:
+    st.session_state.system_initialized = initialize_system()
+
+if not st.session_state.system_initialized:
+    st.error("❌ System initialization failed. Please check the logs and try again.")
+    if st.button("🔄 Retry Initialization"):
+        st.session_state.system_initialized = False
+        st.rerun()
+    st.stop()
+
 # Create tabs for different views
 main_tab, agents_tab = st.tabs(["🔍 Main", "🤖 Agents"])
 
@@ -59,8 +159,8 @@ with main_tab:
     
     if "pipeline" not in st.session_state:
         st.session_state.pipeline = initialize_pipeline()
-
-    # Query input
+        
+        # Query input
     query = st.chat_input("Ask about the database...")
 
     # Handle re-run queries from history
@@ -146,7 +246,7 @@ with main_tab:
         # Clear history button
         if st.button("🗑️ Clear Conversation History"):
             st.session_state.conversation_history = []
-            st.rerun()
+    st.rerun()
 
 with agents_tab:
     # Display detailed agent information

@@ -1,160 +1,282 @@
+"""Summarizer Agent for providing insights about query results"""
+from typing import Dict, Any, List
+import pandas as pd
+from .metadata_loader import MetadataLoader
+
 class SummarizerAgent:
-    def __init__(self, max_preview=5):
+    def __init__(self, max_preview: int = 5):
         self.max_preview = max_preview
+        self.metadata_loader = MetadataLoader()
 
-    def summarize(self, query: str, result: dict) -> dict:
-        if not result.get("success", False):
-            return {"summary": f"⚠️ **Query Failed**\n\n**Your Question:** {query}\n\n**Error:** {result.get('error')}"}
+    def summarize(self, query: str, execution_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate insights from query results"""
+        if not execution_result.get("success", False):
+            return {
+                "summary": f"⚠️ **Query Failed**\n\n**Your Question:** {query}\n\n**Error:** {execution_result.get('error')}",
+                "suggestions": [
+                    "Try rephrasing your question",
+                    "Check if the table names are correct",
+                    "Make sure you're asking about existing data"
+                ]
+            }
 
-        rows = result.get("results", [])
-        if not rows:
-            return {"summary": f"❌ **No Results Found**\n\n**Your Question:** {query}\n\nNo data matches your criteria. Try refining your search or ask a different question."}
+        results = execution_result.get("results", [])
+        if not results:
+            return {
+                "summary": f"❌ **No Results Found**\n\n**Your Question:** {query}\n\nNo data matches your criteria. Try refining your search or ask a different question.",
+                "suggestions": [
+                    "Try broadening your search criteria",
+                    "Check if the data exists in the database",
+                    "Try a different time period or category"
+                ]
+            }
 
+        # Convert results to DataFrame for analysis
+        df = pd.DataFrame(results)
+        total_rows = len(df)
+        
+        # Get query context
         query_lower = query.lower()
         
-        # Handle count queries
-        if any(word in query_lower for word in ["count", "rows", "each table", "by table", "table count"]):
-            if len(rows) > 1:
-                summary_parts = []
-                total_rows = 0
-                for row in rows:
-                    table_name = row.get('table_name', 'Unknown')
-                    count = row.get('row_count', 0)
-                    total_rows += count
-                    summary_parts.append(f"• **{table_name}**: {count:,} rows")
-                
-                # Find the largest table
-                largest_table = max(rows, key=lambda x: x.get('row_count', 0))
-                largest_name = largest_table.get('table_name', 'Unknown')
-                largest_count = largest_table.get('row_count', 0)
-                largest_percentage = (largest_count / total_rows * 100) if total_rows > 0 else 0
-                
-                return {
-                    "summary": f"📊 **Database Overview**\n\n**Your Question:** {query}\n\n" + "\n".join(summary_parts) + f"\n\n**Key Insights:**\n• Total records across all tables: **{total_rows:,}**\n• Largest table: **{largest_name}** ({largest_percentage:.1f}% of total data)\n• Database contains comprehensive banking data with {len(rows)} main entities",
-                    "table": rows,
-                    "suggestions": [
-                        "Show me the top 10 branches by transaction volume",
-                        "What's the average account balance?",
-                        "Show me employee distribution by branch",
-                        "Which accounts have the highest balances?"
-                    ]
-                }
+        # Branch-related insights
+        if "branch" in query_lower:
+            return self._generate_branch_insights(query, df)
+            
+        # Employee-related insights
+        elif "employee" in query_lower or "salary" in query_lower:
+            return self._generate_employee_insights(query, df)
+            
+        # Account-related insights
+        elif "account" in query_lower or "balance" in query_lower:
+            return self._generate_account_insights(query, df)
+            
+        # Transaction-related insights
+        elif "transaction" in query_lower:
+            return self._generate_transaction_insights(query, df)
+            
+        # Generic insights
+        return self._generate_generic_insights(query, df)
+
+    def _generate_branch_insights(self, query: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate insights for branch-related queries"""
+        total_branches = len(df)
         
-        # Handle branch transaction queries
-        if any(word in query_lower for word in ["transaction", "transactions"]) and any(word in query_lower for word in ["branch", "branches"]):
-            if len(rows) == 1:
-                # Single branch result
-                branch = rows[0]
-                name = branch.get('name', 'Unknown Branch')
-                city = branch.get('city', 'Unknown City')
-                state = branch.get('state', 'Unknown State')
-                count = branch.get('transaction_count', 0)
-                
-                # Calculate percentage of total transactions
-                total_transactions = sum(row.get('transaction_count', 0) for row in rows)
-                percentage = (count / total_transactions * 100) if total_transactions > 0 else 0
-                
-                return {
-                    "summary": f"🏆 **Top Performing Branch**\n\n**Your Question:** {query}\n\n**{name}** in {city}, {state} leads with **{count:,} transactions** ({percentage:.1f}% of total branch transactions).\n\nThis branch is your highest-performing location in terms of transaction volume.",
-                    "table": rows,
-                    "suggestions": [
-                        "Show me the top 5 branches by transaction volume",
-                        "What's the average transaction amount for this branch?",
-                        "Show me employee performance at this branch",
-                        "Compare this branch with others by revenue"
-                    ]
-                }
-            else:
-                # Multiple branches
-                top_branch = rows[0]
-                name = top_branch.get('name', 'Unknown Branch')
-                city = top_branch.get('city', 'Unknown City')
-                state = top_branch.get('state', 'Unknown State')
-                count = top_branch.get('transaction_count', 0)
-                total_branches = len(rows)
-                
-                # Calculate insights
-                total_transactions = sum(row.get('transaction_count', 0) for row in rows)
-                avg_transactions = total_transactions / total_branches if total_branches > 0 else 0
-                top_percentage = (count / total_transactions * 100) if total_transactions > 0 else 0
-                
-                # Find the lowest performing branch in the list
-                lowest_branch = rows[-1]
-                lowest_count = lowest_branch.get('transaction_count', 0)
-                performance_gap = count - lowest_count
-                
-                return {
-                    "summary": f"🏆 **Top {total_branches} Branches by Transaction Volume**\n\n**Your Question:** {query}\n\n**{name}** in {city}, {state} leads with **{count:,} transactions** ({top_percentage:.1f}% of total).\n\n**Key Insights:**\n• Average transactions per branch: **{avg_transactions:,.0f}**\n• Performance gap between top and bottom: **{performance_gap:,} transactions**\n• Total transactions across top {total_branches} branches: **{total_transactions:,}**\n\nBelow are the top {total_branches} branches ranked by their transaction activity.",
-                    "table": rows,
-                    "suggestions": [
-                        "Show me the bottom 5 performing branches",
-                        "What's the average transaction amount by branch?",
-                        "Show me branch performance by month",
-                        "Compare branch performance by employee count"
-                    ]
-                }
+        summary_parts = [
+            f"📊 **Branch Analysis**\n\n**Your Question:** {query}\n",
+            f"Found **{total_branches}** {'branch' if total_branches == 1 else 'branches'}."
+        ]
+
+        # Add manager statistics if available
+        if 'manager_name' in df.columns:
+            managed_count = df['manager_name'].notna().sum()
+            unmanaged_count = df['manager_name'].isna().sum()
+            summary_parts.append(f"\n**Management Overview:**")
+            summary_parts.append(f"• Branches with managers: **{managed_count}**")
+            summary_parts.append(f"• Branches without managers: **{unmanaged_count}**")
+            summary_parts.append(f"• Management coverage: **{(managed_count/total_branches)*100:.1f}%**")
+
+        # Add state distribution if available
+        if 'state' in df.columns:
+            valid_states = self.metadata_loader.get_distinct_values('branches', 'state')
+            state_counts = df['state'].value_counts()
+            if not state_counts.empty:
+                summary_parts.append("\n**State Distribution:**")
+                for state in valid_states:
+                    if state in state_counts:
+                        summary_parts.append(f"• {state}: **{state_counts[state]}**")
+
+        suggestions = [
+            "Show me branches without managers",
+            "Which branch has the most employees?",
+            "Show me branch performance by transaction volume",
+            "List branches by city"
+        ]
+
+        return {
+            "summary": "\n".join(summary_parts),
+            "suggestions": suggestions
+        }
+
+    def _generate_employee_insights(self, query: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate insights for employee-related queries"""
+        total_employees = len(df)
         
-        # Handle account balance queries
-        if any(word in query_lower for word in ["balance", "account"]) and any(word in query_lower for word in ["maximum", "max", "highest", "top"]):
-            if len(rows) == 1:
-                account = rows[0]
-                account_num = account.get('account_number', 'Unknown')
-                balance = account.get('balance', 0)
-                account_type = account.get('type', 'Unknown Type')
-                customer_id = account.get('customer_id', 'Unknown')
-                
-                return {
-                    "summary": f"💰 **Highest Balance Account**\n\n**Your Question:** {query}\n\nAccount **{account_num}** ({account_type}) has the highest balance of **${balance:,.2f}**.\n\n**Account Details:**\n• Customer ID: {customer_id}\n• Account Type: {account_type}\n• This represents the wealthiest account in your banking system",
-                    "table": rows,
-                    "suggestions": [
-                        "Show me the top 10 accounts by balance",
-                        "What's the average account balance?",
-                        "Show me account distribution by type",
-                        "Which customers have multiple accounts?"
-                    ]
-                }
+        summary_parts = [
+            f"👥 **Employee Analysis**\n\n**Your Question:** {query}\n",
+            f"Found **{total_employees}** {'employee' if total_employees == 1 else 'employees'}."
+        ]
+
+        if 'salary' in df.columns:
+            avg_salary = df['salary'].mean()
+            max_salary = df['salary'].max()
+            min_salary = df['salary'].min()
+            summary_parts.extend([
+                f"\n**Salary Statistics:**",
+                f"• Average: **${avg_salary:,.2f}**",
+                f"• Highest: **${max_salary:,.2f}**",
+                f"• Lowest: **${min_salary:,.2f}**"
+            ])
+
+        if 'position' in df.columns:
+            valid_positions = self.metadata_loader.get_distinct_values('employees', 'position')
+            position_counts = df['position'].value_counts()
+            summary_parts.extend([
+                f"\n**Position Distribution:**"
+            ])
+            for pos in valid_positions:
+                if pos in position_counts:
+                    summary_parts.append(f"• {pos}: **{position_counts[pos]}**")
+
+        suggestions = [
+            "Show me the highest paid employees",
+            "What's the average salary by position?",
+            "Show me employees hired in the last year",
+            "Which employees handle the most transactions?"
+        ]
+
+        return {
+            "summary": "\n".join(summary_parts),
+            "suggestions": suggestions
+        }
+
+    def _generate_account_insights(self, query: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate insights for account-related queries"""
+        total_accounts = len(df)
         
-        # Handle employee salary queries
-        if any(word in query_lower for word in ["salary", "employee"]) and any(word in query_lower for word in ["maximum", "max", "highest", "top"]):
-            if len(rows) == 1:
-                employee = rows[0]
-                name = employee.get('name', 'Unknown')
-                position = employee.get('position', 'Unknown Position')
-                salary = employee.get('salary', 0)
-                branch_id = employee.get('branch_id', 'Unknown')
-                
-                return {
-                    "summary": f"👔 **Highest Paid Employee**\n\n**Your Question:** {query}\n\n**{name}** ({position}) has the highest salary of **${salary:,.2f}**.\n\n**Employee Details:**\n• Branch ID: {branch_id}\n• Position: {position}\n• This represents your highest-compensated employee",
-                    "table": rows,
-                    "suggestions": [
-                        "Show me the top 10 highest paid employees",
-                        "What's the average employee salary?",
-                        "Show me salary distribution by position",
-                        "Which branches have the highest paid employees?"
-                    ]
-                }
+        summary_parts = [
+            f"💳 **Account Analysis**\n\n**Your Question:** {query}\n",
+            f"Found **{total_accounts}** {'account' if total_accounts == 1 else 'accounts'}."
+        ]
+
+        if 'balance' in df.columns:
+            total_balance = df['balance'].sum()
+            avg_balance = df['balance'].mean()
+            summary_parts.extend([
+                f"\n**Balance Statistics:**",
+                f"• Total Balance: **${total_balance:,.2f}**",
+                f"• Average Balance: **${avg_balance:,.2f}**"
+            ])
+
+        if 'type' in df.columns:
+            valid_types = self.metadata_loader.get_distinct_values('accounts', 'type')
+            type_counts = df['type'].value_counts()
+            summary_parts.extend([
+                f"\n**Account Types:**"
+            ])
+            for acc_type in valid_types:
+                if acc_type in type_counts:
+                    summary_parts.append(f"• {acc_type}: **{type_counts[acc_type]}**")
+
+        if 'status' in df.columns:
+            valid_statuses = self.metadata_loader.get_distinct_values('accounts', 'status')
+            status_counts = df['status'].value_counts()
+            summary_parts.extend([
+                f"\n**Account Status:**"
+            ])
+            for status in valid_statuses:
+                if status in status_counts:
+                    summary_parts.append(f"• {status}: **{status_counts[status]}**")
+
+        suggestions = [
+            "Show me accounts with high balances",
+            "What's the average balance by account type?",
+            "Show me recently opened accounts",
+            "Which accounts have the most transactions?"
+        ]
+
+        return {
+            "summary": "\n".join(summary_parts),
+            "suggestions": suggestions
+        }
+
+    def _generate_transaction_insights(self, query: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate insights for transaction-related queries"""
+        total_transactions = len(df)
         
-        # Handle transaction queries
-        if any(word in query_lower for word in ["transaction", "transactions"]) and not any(word in query_lower for word in ["branch", "branches"]):
-            if len(rows) == 1:
-                return {
-                    "summary": f"💳 **Latest Transaction**\n\n**Your Question:** {query}\n\nHere's the most recent transaction from your database.",
-                    "table": rows
-                }
-            else:
-                return {
-                    "summary": f"💳 **Recent Transactions**\n\n**Your Question:** {query}\n\nHere are the {len(rows)} most recent transactions from your database.",
-                    "table": rows
-                }
+        summary_parts = [
+            f"💸 **Transaction Analysis**\n\n**Your Question:** {query}\n",
+            f"Found **{total_transactions}** {'transaction' if total_transactions == 1 else 'transactions'}."
+        ]
+
+        if 'amount' in df.columns:
+            total_amount = df['amount'].sum()
+            avg_amount = df['amount'].mean()
+            summary_parts.extend([
+                f"\n**Amount Statistics:**",
+                f"• Total Amount: **${total_amount:,.2f}**",
+                f"• Average Amount: **${avg_amount:,.2f}**"
+            ])
+
+        if 'type' in df.columns:
+            valid_types = self.metadata_loader.get_distinct_values('transactions', 'type')
+            type_counts = df['type'].value_counts()
+            summary_parts.extend([
+                f"\n**Transaction Types:**"
+            ])
+            for tx_type in valid_types:
+                if tx_type in type_counts:
+                    summary_parts.append(f"• {tx_type}: **{type_counts[tx_type]}**")
+
+        if 'status' in df.columns:
+            valid_statuses = self.metadata_loader.get_distinct_values('transactions', 'status')
+            status_counts = df['status'].value_counts()
+            summary_parts.extend([
+                f"\n**Transaction Status:**"
+            ])
+            for status in valid_statuses:
+                if status in status_counts:
+                    summary_parts.append(f"• {status}: **{status_counts[status]}**")
+
+        suggestions = [
+            "Show me high-value transactions",
+            "What's the average transaction amount by type?",
+            "Show me today's transactions",
+            "Which accounts have the most transactions?"
+        ]
+
+        return {
+            "summary": "\n".join(summary_parts),
+            "suggestions": suggestions
+        }
+
+    def _generate_generic_insights(self, query: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate insights for general queries"""
+        total_rows = len(df)
         
-        # Generic handling for other queries
-        if len(rows) == 1:
-            return {
-                "summary": f"✅ **Query Result**\n\n**Your Question:** {query}\n\nFound 1 result for your query.",
-                "table": rows
-            }
-        else:
-            return {
-                "summary": f"✅ **Query Results**\n\n**Your Question:** {query}\n\nFound {len(rows)} results for your query.",
-                "table": rows
-            }
+        summary_parts = [
+            f"📊 **Query Results**\n\n**Your Question:** {query}\n",
+            f"Found **{total_rows}** {'result' if total_rows == 1 else 'results'}."
+        ]
+
+        # Add column statistics
+        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+        if len(numeric_cols) > 0:
+            summary_parts.append("\n**Numeric Column Statistics:**")
+            for col in numeric_cols[:3]:  # Show stats for up to 3 numeric columns
+                avg = df[col].mean()
+                max_val = df[col].max()
+                min_val = df[col].min()
+                summary_parts.append(f"• {col}:")
+                summary_parts.append(f"  - Average: **{avg:,.2f}**")
+                summary_parts.append(f"  - Range: **{min_val:,.2f}** to **{max_val:,.2f}**")
+
+        # Add categorical column distributions
+        categorical_cols = df.select_dtypes(include=['object']).columns
+        for col in categorical_cols[:2]:  # Show distributions for up to 2 categorical columns
+            value_counts = df[col].value_counts()
+            if not value_counts.empty:
+                summary_parts.append(f"\n**{col} Distribution:**")
+                for val, count in value_counts.head(3).items():
+                    summary_parts.append(f"• {val}: **{count}**")
+
+        suggestions = [
+            "Show me the count of rows by table",
+            "What are the most common values?",
+            "Show me the data distribution",
+            "Can you explain the patterns in this data?"
+        ]
+
+        return {
+            "summary": "\n".join(summary_parts),
+            "suggestions": suggestions
+        }

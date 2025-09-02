@@ -31,6 +31,7 @@ class AgentLogger:
         
     def log_agent_state(self, agent_name: str, state: Dict[str, Any]):
         """Log agent state and store for UI display"""
+        # Store the original data structures
         self.agent_states[agent_name] = state
         self.flow_history.append({
             'timestamp': datetime.now().isoformat(),
@@ -57,10 +58,21 @@ def log_agent_flow(agent_name: str):
             # Log entry
             entry_log = {
                 'event': 'entry',
-                'input_args': str(args),
-                'input_kwargs': str(kwargs)
+                'input_args': args,  # Keep as tuple
+                'input_kwargs': kwargs,  # Keep as dict
+                'timestamp': datetime.now().isoformat()
             }
-            logger.info(f"🔵 {agent_name} Entry | {json.dumps(entry_log)}")
+            
+            # For console logging, convert to JSON-safe format
+            console_entry = {
+                'event': 'entry',
+                'input_args': [str(arg) if not isinstance(arg, (str, int, float, bool, list, dict)) else arg for arg in args],
+                'input_kwargs': {k: str(v) if not isinstance(v, (str, int, float, bool, list, dict)) else v for k, v in kwargs.items()},
+                'timestamp': entry_log['timestamp']
+            }
+            logger.info(f"🔵 {agent_name} Entry | {json.dumps(console_entry, indent=2)}")
+            
+            # Store original data structures in agent state
             agent_logger.log_agent_state(agent_name, {'status': 'started', **entry_log})
             
             try:
@@ -71,9 +83,20 @@ def log_agent_flow(agent_name: str):
                 exit_log = {
                     'event': 'exit',
                     'status': 'success',
-                    'output': str(result)
+                    'output': result,  # Keep as original type
+                    'timestamp': datetime.now().isoformat()
                 }
-                logger.info(f"✅ {agent_name} Exit | {json.dumps(exit_log)}")
+                
+                # For console logging, convert to JSON-safe format
+                console_exit = {
+                    'event': 'exit',
+                    'status': 'success',
+                    'output': str(result) if not isinstance(result, (str, int, float, bool, list, dict)) else result,
+                    'timestamp': exit_log['timestamp']
+                }
+                logger.info(f"✅ {agent_name} Exit | {json.dumps(console_exit, indent=2)}")
+                
+                # Store original data structures in agent state
                 agent_logger.log_agent_state(agent_name, {'status': 'completed', **exit_log})
                 
                 return result
@@ -83,9 +106,10 @@ def log_agent_flow(agent_name: str):
                 error_log = {
                     'event': 'exit',
                     'status': 'error',
-                    'error': str(e)
+                    'error': str(e),
+                    'timestamp': datetime.now().isoformat()
                 }
-                logger.error(f"❌ {agent_name} Error | {json.dumps(error_log)}")
+                logger.error(f"❌ {agent_name} Error | {json.dumps(error_log, indent=2)}")
                 agent_logger.log_agent_state(agent_name, {'status': 'failed', **error_log})
                 raise
                 

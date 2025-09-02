@@ -87,5 +87,4 @@ CREATE INDEX idx_accounts_customer ON accounts(customer_id);
 CREATE INDEX idx_accounts_number ON accounts(account_number);
 CREATE INDEX idx_transactions_account ON transactions(account_id);
 CREATE INDEX idx_transactions_date ON transactions(transaction_date);
-CREATE INDEX idx_employees_branch ON employees(branch_id);
- 
+CREATE INDEX idx_employees_branch ON employees(branch_id); 

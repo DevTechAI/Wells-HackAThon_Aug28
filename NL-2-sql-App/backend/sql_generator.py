@@ -1,141 +1,432 @@
-"""SQL Generator Agent using LLM abstraction"""
-import typing
-from typing import Dict, Any, Optional
+"""SQL Generator Agent with schema awareness and LLM capabilities"""
 import logging
-from .llm_provider import get_llm_provider
+import os
+import json
+from typing import Dict, Any, List, Optional, Tuple
 from .logger_config import log_agent_flow
+from .metadata_loader import MetadataLoader
+from .llm_provider import get_llm_provider
+from .sql_validator import SQLValidator
+from .llm_prompt_builder import PromptingAgent
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def log_llm_interaction(prompt: str, response: Dict[str, str], attempt: int) -> None:
+    """Log LLM interaction with JSON input/output"""
+    try:
+        interaction = {
+            "llm_interaction": {
+                "attempt": attempt,
+                "input": {
+                    "prompt": prompt,
+                    "temperature": 0.1 + (0.1 * (attempt - 1)),
+                    "max_tokens": 512
+                },
+                "output": response,
+                "timestamp": "✅"  # Green tick for successful LLM interaction
+            }
+        }
+        logger.info(f"\n{json.dumps(interaction, indent=2)}")
+    except Exception as err:
+        logger.error(f"Failed to log LLM interaction: {str(err)}")
+
 class SQLGeneratorAgent:
-    """SQL Generator Agent that uses LLM for query generation"""
-    
-    @log_agent_flow("SQLGeneratorAgent")
     def __init__(self, temperature: float = 0.1):
         self.temperature = temperature
-        self.schema_tables = {}
-        self.llm = get_llm_provider()
+        self.schema_tables = None
+        self.metadata_loader = MetadataLoader()
+        self.llm_provider = get_llm_provider()
+        self.validator = SQLValidator(os.getenv("SQLITE_DB_PATH", "banking.db"))
+        self.max_llm_attempts = 3
+        self.prompting_agent = PromptingAgent()
         logger.info("Initialized SQLGeneratorAgent")
 
-    @log_agent_flow("SQLGeneratorAgent.build_prompt")
-    def build_prompt(self, query: str, schema_context: typing.List[str]) -> str:
-        """Build prompt for SQL generation"""
-        schema_str = "\n".join(schema_context)
-
-        examples = """
-        Q: List all branches in Texas.
-        A: SELECT id, name, city, state FROM branches WHERE state = 'TX';
-
-        Q: Show last 5 transactions.
-        A: SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 5;
-
-        Q: Maximum transaction making branch.
-        A: 
-        SELECT b.id, b.name, b.city, b.state, COUNT(t.id) as transaction_count
-        FROM branches b
-        LEFT JOIN accounts a ON b.id = a.branch_id
-        LEFT JOIN transactions t ON a.id = t.account_id
-        GROUP BY b.id, b.name, b.city, b.state
-        ORDER BY transaction_count DESC
-        LIMIT 1;
-        """
-
-        system = """
-        You are a SQL assistant.
-        Rules:
-        - Only generate SELECT queries
-        - Only use provided schema
-        - Never modify data (no UPDATE/DELETE/DROP)
-        - Return SQL only, no explanations
-        - Use proper table aliases in JOINs
-        - Include appropriate WHERE clauses
-        - Use clear column names
-        """
-
-        return f"""{system}
-
-Schema:
-{schema_str}
-
-Examples:
-{examples}
-
-Generate SQL for this question:
-{query}"""
-
-    @log_agent_flow("SQLGeneratorAgent.generate")
-    def generate(
-        self,
-        user_query: str,
-        constraints: Dict[str, Any],
-        retrieval_context: Dict[str, Any],
-        schema_tables: Dict[str, Any],
-    ) -> str:
-        """Generate SQL using LLM"""
+    def _get_foreign_key_info(self) -> Dict[str, List[Dict[str, str]]]:
+        """Get foreign key relationships from schema metadata"""
         try:
-            self.schema_tables = schema_tables
-            schema_context = retrieval_context.get("schema_context", [])
-            prompt = self.build_prompt(user_query, schema_context)
+            # Get schema metadata from the metadata loader
+            schema_metadata = self.metadata_loader.get_metadata()
             
-            # Generate SQL using LLM
-            sql = self.llm.generate_text(
-                prompt,
-                temperature=self.temperature,
-                max_tokens=512
-            )
+            # Define the foreign key relationships based on schema
+            foreign_keys = {
+                "branches": [
+                    {"column": "manager_id", "references": "employees.id"}
+                ],
+                "customers": [
+                    {"column": "branch_id", "references": "branches.id"}
+                ],
+                "employees": [
+                    {"column": "branch_id", "references": "branches.id"}
+                ],
+                "accounts": [
+                    {"column": "customer_id", "references": "customers.id"},
+                    {"column": "branch_id", "references": "branches.id"}
+                ],
+                "transactions": [
+                    {"column": "account_id", "references": "accounts.id"},
+                    {"column": "employee_id", "references": "employees.id"}
+                ]
+            }
             
-            # Clean up the response
-            sql = sql.strip()
-            if "```sql" in sql:
-                sql = sql.split("```sql")[1].split("```")[0].strip()
-            elif "```" in sql:
-                sql = sql.split("```")[1].split("```")[0].strip()
+            # Log the foreign key information
+            logger.info("Retrieved foreign key relationships from schema")
+            logger.debug(f"Foreign keys: {json.dumps(foreign_keys, indent=2)}")
             
-            logger.info(f"Generated SQL: {sql}")
-            return sql
+            return foreign_keys
             
-        except Exception as e:
-            logger.error(f"SQL generation failed: {str(e)}")
-            # Fallback to simple query
-            first_table = next(iter(schema_tables.keys())) if schema_tables else ""
-            return f"SELECT * FROM {first_table} LIMIT 10;" if first_table else "SELECT 1;"
+        except Exception as err:
+            logger.error(f"Error getting foreign key info: {str(err)}")
+            # Return empty structure to avoid breaking the application
+            return {}
 
-    @log_agent_flow("SQLGeneratorAgent.repair_sql")
-    def repair_sql(self, nl_query: str, gen_ctx: dict, hint: str = "") -> str:
-        """Repair SQL based on error hint"""
+    def _validate_table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the schema"""
+        return table_name in self.schema_tables
+
+    def _validate_column_exists(self, table_name: str, column_name: str) -> bool:
+        """Check if a column exists in a table"""
+        if not self._validate_table_exists(table_name):
+            return False
+        return column_name in self.schema_tables[table_name]
+
+    def _validate_column_value(self, table_name: str, column_name: str, value: str) -> bool:
+        """Validate a column value against known valid values"""
+        return self.metadata_loader.validate_value(table_name, column_name, value)
+
+    def _build_join_condition(self, table1: str, table2: str) -> Optional[str]:
+        """Build a JOIN condition between two tables based on foreign keys"""
+        fk_info = self._get_foreign_key_info()
+        
+        # Check direct relationship
+        if table1 in fk_info:
+            for fk in fk_info[table1]:
+                ref_table, ref_col = fk["references"].split(".")
+                if ref_table == table2:
+                    return f"{table1}.{fk['column']} = {table2}.{ref_col}"
+        
+        # Check reverse relationship
+        if table2 in fk_info:
+            for fk in fk_info[table2]:
+                ref_table, ref_col = fk["references"].split(".")
+                if ref_table == table1:
+                    return f"{table2}.{fk['column']} = {table1}.{ref_col}"
+        
+        return None
+
+    def _parse_llm_response(self, response: str) -> Tuple[Optional[str], Optional[str]]:
+        """Parse the LLM response to extract SQL query and suggestion"""
         try:
-            schema_context = gen_ctx.get("schema_context", [])
-            repair_prompt = f"""
-            Original question: {nl_query}
-            Error: {hint}
+            # Clean the response to handle markdown-wrapped JSON
+            cleaned_response = self._clean_llm_response(response)
             
-            Generate a corrected SQL query that fixes this error.
-            Use the schema context below:
+            # Parse the cleaned response as JSON
+            response_json = json.loads(cleaned_response)
             
-            {schema_context}
+            # Extract SQL query and suggestion
+            sql_query = response_json.get("SQLQuery", "").strip()
+            suggestion = response_json.get("Suggestion", "").strip()
+            
+            # Validate both fields are present
+            if not sql_query or not suggestion:
+                logger.error("LLM response missing required fields")
+                logger.error(f"SQLQuery: '{sql_query}', Suggestion: '{suggestion}'")
+                return None, None
+            
+            logger.info("✅ Successfully parsed LLM response")
+            logger.debug(f"Extracted SQL: {sql_query[:100]}...")
+            logger.debug(f"Extracted Suggestion: {suggestion[:100]}...")
+            
+            return sql_query, suggestion
+            
+        except json.JSONDecodeError as err:
+            logger.error(f"Failed to parse LLM response as JSON: {str(err)}")
+            logger.error(f"Cleaned response: {cleaned_response[:200]}...")
+            return None, None
+        except Exception as err:
+            logger.error(f"Error parsing LLM response: {str(err)}")
+            return None, None
+
+    def _clean_llm_response(self, response: str) -> str:
+        """Clean LLM response by removing markdown code blocks and extra whitespace"""
+        try:
+            # Remove leading and trailing whitespace
+            cleaned = response.strip()
+            
+            # Remove markdown code blocks if present
+            if cleaned.startswith("```json"):
+                # Find the end of the code block
+                end_marker = cleaned.find("```", 7)  # Start after "```json"
+                if end_marker != -1:
+                    cleaned = cleaned[7:end_marker].strip()
+                else:
+                    # No closing marker found, take everything after ```json
+                    cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                # Generic code block
+                end_marker = cleaned.find("```", 3)
+                if end_marker != -1:
+                    cleaned = cleaned[3:end_marker].strip()
+                else:
+                    cleaned = cleaned[3:].strip()
+            
+            # Remove any remaining backticks at start/end
+            cleaned = cleaned.strip("`")
+            
+            # Log the cleaning process for debugging
+            if cleaned != response.strip():
+                logger.debug(f"Cleaned LLM response: removed markdown wrapping")
+                logger.debug(f"Original: {response[:100]}...")
+                logger.debug(f"Cleaned: {cleaned[:100]}...")
+            
+            return cleaned
+            
+        except Exception as err:
+            logger.error(f"Error cleaning LLM response: {str(err)}")
+            return response.strip()
+
+    def _try_llm_generation(self, query: str, context: Dict[str, Any], attempts_left: int = 3) -> Tuple[bool, str, Optional[str]]:
+        """Try generating SQL using LLM with multiple attempts"""
+        error_context = None
+        attempt_number = 1
+        
+        while attempts_left > 0:
+            try:
+                # Generate prompt using the prompting agent
+                prompt = self.prompting_agent.build_prompt(
+                    query=query,
+                    detected_tables=context.get("detected_tables", []),
+                    capabilities=context.get("detected_capabilities", []),
+                    error_context=error_context
+                )
+                
+                # Log the attempt
+                logger.info(f"\n🔄 LLM Generation Attempt {attempt_number}")
+                logger.info(f"Temperature: {self.temperature + (0.1 * (3 - attempts_left))}")
+                
+                # Get response from LLM
+                response = self.llm_provider.generate_text(
+                    prompt,
+                    temperature=self.temperature + (0.1 * (3 - attempts_left)),
+                    max_tokens=512
+                )
+                
+                # Check if response is None (LLM error)
+                if response is None:
+                    logger.error(f"LLM returned None response on attempt {attempt_number}")
+                    attempts_left -= 1
+                    attempt_number += 1
+                    continue
+                
+                # Log raw response for debugging
+                logger.debug(f"Raw LLM Response:\n{response}")
+                
+                # Parse the response
+                sql, suggestion = self._parse_llm_response(response.strip())
+                if not sql or not suggestion:
+                    logger.warning(f"LLM attempt {attempt_number} failed: Invalid response format")
+                    logger.debug("Expected JSON with SQLQuery and Suggestion fields")
+                    attempts_left -= 1
+                    attempt_number += 1
+                    continue
+                
+                # Log the successful parsing
+                log_llm_interaction(prompt, {"SQLQuery": sql, "Suggestion": suggestion}, attempt_number)
+                
+                # Validate the generated SQL
+                is_valid, error_msg = self.validator.validate_sql(sql)
+                if is_valid:
+                    # Add successful query to history
+                    self.prompting_agent.add_query_to_history(
+                        nl_query=query,
+                        sql=sql,
+                        suggestion=suggestion,
+                        success=True,
+                        reasoning=context.get("reasoning_steps", [])
+                    )
+                    return True, sql, suggestion
+                
+                # If invalid, get error context for next attempt
+                error_context = self.validator.get_error_context(error_msg)
+                logger.warning(f"LLM attempt {attempt_number} failed validation: {error_msg}")
+                
+                # Add failed query to history
+                self.prompting_agent.add_query_to_history(
+                    nl_query=query,
+                    sql=sql,
+                    suggestion=suggestion,
+                    success=False,
+                    error_context=error_context,
+                    reasoning=context.get("reasoning_steps", [])
+                )
+                
+                attempts_left -= 1
+                attempt_number += 1
+                
+            except json.JSONDecodeError as err:
+                logger.error(f"JSON parsing error on attempt {attempt_number}: {str(err)}")
+                attempts_left -= 1
+                attempt_number += 1
+            except Exception as err:
+                logger.error(f"LLM generation error on attempt {attempt_number}: {str(err)}")
+                attempts_left -= 1
+                attempt_number += 1
+        
+        logger.error("❌ All LLM generation attempts failed")
+        return False, "ERROR: Failed to generate valid SQL after multiple attempts", None
+
+    def _try_pattern_matching(self, query: str) -> Tuple[str, str]:
+        """Try to match query against known patterns"""
+        query_lower = query.lower()
+        
+        # Branch and manager query pattern
+        if "branch" in query_lower and "manager" in query_lower:
+            if not all(self._validate_table_exists(t) for t in ["branches", "employees"]):
+                return "ERROR: Required tables not found in schema", None
+            
+            sql = """
+                SELECT 
+                    b.name AS branch_name,
+                    e.name AS manager_name
+                FROM branches b
+                LEFT JOIN employees e 
+                    ON b.manager_id = e.id 
+                    AND e.position = 'Branch Manager'
+                ORDER BY b.name;
             """
             
-            # Generate repaired SQL
-            sql = self.llm.generate_text(
-                repair_prompt,
-                temperature=0.1,  # Lower temperature for repairs
-                max_tokens=512
+            suggestion = """
+                This query lists all bank branches along with their manager names.
+                It uses a LEFT JOIN to include branches without managers, and
+                filters for employees with the 'Branch Manager' position.
+                Results are ordered by branch name.
+            """.strip()
+            
+            # Validate the pattern-matched SQL
+            is_valid, error_msg = self.validator.validate_sql(sql)
+            if is_valid:
+                return sql, suggestion
+            return f"ERROR: Pattern matching failed validation: {error_msg}", None
+        
+        # Multiple account types query
+        elif ("both" in query_lower or "multiple" in query_lower) and "account" in query_lower:
+            if not self._validate_table_exists("accounts"):
+                return "ERROR: Accounts table not found in schema", None
+            
+            account_types = []
+            for acc_type in self.metadata_loader.get_column_values("accounts", "type"):
+                if acc_type in query_lower:
+                    account_types.append(acc_type)
+            
+            if len(account_types) >= 2:
+                type_conditions = []
+                joins = []
+                for i, acc_type in enumerate(account_types, 1):
+                    alias = f"a{i}"
+                    type_conditions.append(f"{alias}.type = '{acc_type}'")
+                    joins.append(f"""
+                        JOIN accounts {alias} 
+                            ON c.id = {alias}.customer_id 
+                            AND {alias}.status = 'active'
+                    """.strip())
+                
+                sql = f"""
+                    SELECT DISTINCT
+                        c.first_name || ' ' || c.last_name AS customer_name
+                    FROM 
+                        customers c
+                        {' '.join(joins)}
+                    WHERE 
+                        {' AND '.join(type_conditions)}
+                    ORDER BY 
+                        customer_name;
+                """
+                
+                suggestion = f"""
+                    This query finds customers who have all of the following account types:
+                    {', '.join(account_types)}. It only considers active accounts and
+                    returns distinct customer names in alphabetical order.
+                """.strip()
+                
+                # Validate the pattern-matched SQL
+                is_valid, error_msg = self.validator.validate_sql(sql)
+                if is_valid:
+                    return sql, suggestion
+                return f"ERROR: Pattern matching failed validation: {error_msg}", None
+        
+        # No pattern matched
+        return "SELECT 1;", "Default fallback query"
+
+    @log_agent_flow("SQLGeneratorAgent")
+    def generate(self, query: str, retrieval_context: Dict[str, Any], gen_ctx: Dict[str, Any], schema_tables: Dict[str, List[str]]) -> str:
+        """Generate SQL from natural language query"""
+        self.schema_tables = schema_tables
+        
+        # Initialize prompting agent if not already done
+        if not self.prompting_agent.context:
+            self.prompting_agent.initialize_context(
+                schema_metadata=self.metadata_loader.get_metadata(),
+                foreign_keys=self._get_foreign_key_info()
+            )
+        
+        # Update conversation context
+        self.prompting_agent.update_conversation_context("current_query", query)
+        self.prompting_agent.update_conversation_context("retrieval_context", retrieval_context)
+        
+        # Log input context
+        logger.info("\n🔍 SQLGeneratorAgent Input Context:")
+        logger.info(json.dumps({
+            "query": query,
+            "detected_capabilities": gen_ctx.get("detected_capabilities", []),
+            "detected_tables": gen_ctx.get("detected_tables", []),
+            "has_clarifications": bool(gen_ctx.get("clarified_values")),
+            "has_metadata": bool(gen_ctx.get("metadata_context"))
+        }, indent=2))
+        
+        # First try LLM generation with multiple attempts
+        success, sql, suggestion = self._try_llm_generation(query, gen_ctx, self.max_llm_attempts)
+        if success:
+            logger.info("✅ Successfully generated SQL using LLM")
+            logger.info(f"📝 Suggestion: {suggestion}")
+            return sql
+        
+        # If LLM fails, fall back to pattern matching
+        logger.info("LLM generation failed, trying pattern matching")
+        sql, suggestion = self._try_pattern_matching(query)
+        if sql != "SELECT 1;":
+            # Add pattern-matched query to history
+            self.prompting_agent.add_query_to_history(
+                nl_query=query,
+                sql=sql,
+                suggestion=suggestion,
+                success=True,
+                reasoning=["Used pattern matching due to LLM failure"]
+            )
+            logger.info("✅ Successfully generated SQL using pattern matching")
+            logger.info(f"📝 Suggestion: {suggestion}")
+            return sql
+        
+        return "ERROR: Failed to generate valid SQL query"
+
+    def repair_sql(self, query: str, gen_ctx: Dict[str, Any], hint: str = None) -> str:
+        """Repair invalid SQL based on error hint"""
+        try:
+            # Get error context
+            error_context = self.validator.get_error_context(hint)
+            
+            # Try LLM repair with error context
+            success, sql, suggestion = self._try_llm_generation(
+                query,
+                gen_ctx,  # Use the full context for repair
+                attempts_left=2,  # Fewer attempts for repair
             )
             
-            # Clean up the response
-            sql = sql.strip()
-            if "```sql" in sql:
-                sql = sql.split("```sql")[1].split("```")[0].strip()
-            elif "```" in sql:
-                sql = sql.split("```")[1].split("```")[0].strip()
-            
-            logger.info(f"Repaired SQL: {sql}")
-            return sql
-            
-        except Exception as e:
-            logger.error(f"SQL repair failed: {str(e)}")
-            # Fallback to simple query
-            first_table = next(iter(self.schema_tables.keys())) if self.schema_tables else ""
-            return f"SELECT * FROM {first_table} LIMIT 5;" if first_table else "SELECT 1;"
+            if success:
+                logger.info(f"✅ Successfully repaired SQL")
+                logger.info(f"📝 Repair suggestion: {suggestion}")
+                return sql
+                
+        except Exception as err:
+            logger.error(f"SQL repair failed: {str(err)}")
+                
+        return "SELECT 1;"  # Default fallback
